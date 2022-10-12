@@ -129,6 +129,6 @@ dmypy.json
 .pyre/
 
 # Added
-.DS_Store
+*.DS_Store*
 Backgrounds/
 Backgrounds/*.jpg
