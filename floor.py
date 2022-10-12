@@ -14,7 +14,6 @@ class Floor(pygame.sprite.Sprite):
         self.rect = self.image.get_rect()
         self.rect.x = 0
         self.rect.y = 9 * Floor.DISPLAY_HEIGHT / 10
-        self.rect.y = 1100
 
     def update(self, t):
         pass

@@ -24,9 +24,8 @@ class Player(pygame.sprite.Sprite):
         self.yacceleration = 0
         self.image = Player.SPRITES['still']
         self.rect = self.image.get_rect()
-
         self.x = Player.DISPLAY_WIDTH / 2
-        self.y = 9 * Player.DISPLAY_HEIGHT / 10
+        self.y = 9 * Player.DISPLAY_HEIGHT / 10 - self.rect.height
         self.rect.x = self.x
         self.rect.y = self.y
         # Laser Variables
@@ -101,7 +100,7 @@ class Player(pygame.sprite.Sprite):
         self.rect = self.image.get_rect()
 
     def jump(self):
-        if self.y < 2 * Player.DISPLAY_HEIGHT / 3:
+        if self.y < 9 * Player.DISPLAY_HEIGHT / 10:
             return
         print("Jump.")
         self.yspeed = -(Player.SPEED * Player.JUMP_CONSTANT)
@@ -119,8 +118,8 @@ class Player(pygame.sprite.Sprite):
         Raises:
             None.
         """
-        if self.y > 2 * Player.DISPLAY_HEIGHT / 3:
-            self.y = 2 * Player.DISPLAY_HEIGHT / 3
+        if self.y > 9 * Player.DISPLAY_HEIGHT / 10:
+            self.y = 9 * Player.DISPLAY_HEIGHT / 10
             self.stopy()
 
         self.x += self.xspeed * t

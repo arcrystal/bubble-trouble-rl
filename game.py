@@ -84,6 +84,11 @@ class Game:
             (0, Game.DISPLAY_HEIGHT-10),
             (timeleft, Game.DISPLAY_HEIGHT-10),
             10)
+        pygame.draw.line(
+            self.screen, Game.WHITE,
+            (0, Game.DISPLAY_HEIGHT-20),
+            (timeleft, Game.DISPLAY_HEIGHT-20),
+            10)
 
     def play(self):
         gameover = False
