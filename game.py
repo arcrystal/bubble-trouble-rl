@@ -22,6 +22,7 @@ class Game:
     UPDATE_MULTIPLIER = 0.1
     DISPLAY_WIDTH = 1280
     DISPLAY_HEIGHT = 960
+    LVL_TIME = [20000, 40000, 50000, 75000, 100000, 125000]
 
     def __init__(self):
         pygame.init()
@@ -47,9 +48,13 @@ class Game:
             group.add(Floor())
         self.objects[0].add(Ball(Game.DISPLAY_WIDTH // 4, Game.DISPLAY_HEIGHT // 6, 0, 0, 0, 9.81, 1))
         self.objects[1].add(Ball(Game.DISPLAY_WIDTH // 4, Game.DISPLAY_HEIGHT // 6, 0, 0, 0, 9.81, 2))
+        self.objects[1].add(Ball(Game.DISPLAY_WIDTH // 4, Game.DISPLAY_HEIGHT // 6, 0, 0, 0, 9.81, 3))
+        self.objects[1].add(
+            Ball(Game.DISPLAY_WIDTH // 4, Game.DISPLAY_HEIGHT // 6, 0, 0, 0, 9.81, 2),
+            Ball(3 * Game.DISPLAY_WIDTH // 4, Game.DISPLAY_HEIGHT // 6, 0, 0, 0, 9.81, 3))
         self.objects[5].add((
-            Ball(Game.DISPLAY_WIDTH // 2 - 45, Game.DISPLAY_HEIGHT // 6, 0, 0, 0, 9.81, 0),
-            Ball(Game.DISPLAY_WIDTH // 2 - 10, Game.DISPLAY_HEIGHT // 6, 0, 0, 0, 9.81, 1),
+            Ball(Game.DISPLAY_WIDTH // 2 - 45, Game.DISPLAY_HEIGHT // 6, 0, 0, 0, 9.81, 2),
+            Ball(Game.DISPLAY_WIDTH // 2 - 10, Game.DISPLAY_HEIGHT // 6, 0, 0, 0, 9.81, 3),
             Ball(Game.DISPLAY_WIDTH // 2 + 40, Game.DISPLAY_HEIGHT // 6, 0, 0, 0, 9.81, 2)))
 
     def play_music(self, filepath):
@@ -107,7 +112,7 @@ class Game:
             # Set up timers
             timer = 0
             timeleft = Game.DISPLAY_WIDTH
-            time.sleep(1)
+            pygame.time.wait(1000)
 
             # Display new level screen
             curr_background = self.load_background(background)
@@ -117,7 +122,7 @@ class Game:
             lvl_font_rect.center = Game.DISPLAY_WIDTH / 2, Game.DISPLAY_HEIGHT / 10
             self.screen.blit(lvl_font, lvl_font_rect)
             pygame.display.update()
-            time.sleep(2)
+            pygame.time.wait(2000)
 
             # Convert sprite pixels
             player = lvlsprites.sprites()[0]
@@ -166,7 +171,7 @@ class Game:
                 pygame.display.update()
                 clock.tick(Game.FPS)   
                 timer += clock.get_time()
-                timeleft = Game.DISPLAY_WIDTH - Game.DISPLAY_WIDTH / 20000 * timer        
+                timeleft = Game.DISPLAY_WIDTH - Game.DISPLAY_WIDTH / (Game.LVL_TIME[lvl] / timer)
 
                 if timeleft <= 0:
                     gameover = True

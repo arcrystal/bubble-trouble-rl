@@ -12,9 +12,9 @@ class Ball(pygame.sprite.Sprite):
         1:pygame.image.load("Sprites/ball2_sm.png"),
         2:pygame.image.load("Sprites/ball3_sm.png"),
         3:pygame.image.load("Sprites/ball4_sm.png"),
-        3:pygame.image.load("Sprites/ball5_sm.png"),
-        3:pygame.image.load("Sprites/ball6_sm.png"),
-        4:pygame.image.load("Sprites/ball7_sm.png")}
+        4:pygame.image.load("Sprites/ball5_sm.png"),
+        5:pygame.image.load("Sprites/ball6_sm.png"),
+        6:pygame.image.load("Sprites/ball7_sm.png")}
 
     def __init__(self, x, y, xspeed, yspeed, xacceleration, yacceleration, ballsize):
         assert ballsize < 5
