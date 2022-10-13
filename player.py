@@ -9,7 +9,6 @@ class Player(pygame.sprite.Sprite):
     DISPLAY_WIDTH = 1280
     DISPLAY_HEIGHT = 960
     JUMP_CONSTANT = 8
-    LASER_SPEED = DISPLAY_HEIGHT / 100
     SPEED = DISPLAY_WIDTH / 50
     SPRITES = {
         "still":pygame.image.load("Sprites/person_still_sm.png"),
@@ -28,12 +27,6 @@ class Player(pygame.sprite.Sprite):
         self.y = 9 * Player.DISPLAY_HEIGHT / 10 - self.rect.height
         self.rect.x = self.x
         self.rect.y = self.y
-        # Laser Variables
-        self.laser = False
-        self.laserX = -1
-        self.laserYstart = -1
-        self.laserY = -1
-        self.screen = None
 
     def getX(self):
         return self.x
@@ -46,36 +39,6 @@ class Player(pygame.sprite.Sprite):
 
     def setX(self, x):
         self.x = x
-
-    def getLaser(self):
-        return self.laserX, self.laserY, self.laserYstart
-
-    def setLaser(self, laserStatus):
-        self.laser = laserStatus
-        if not laserStatus:
-            self.laserX = -1
-            self.laserY = -1
-            self.laserYstart = -1
-
-    def stopshoot(self):
-        print("Stop shooting.")
-        self.image = Player.SPRITES['still']
-        self.rect = self.image.get_rect()
-
-
-    def shoot(self, screen):
-        print("Shoot.")
-        if self.laser:
-            return self.getLaser()
-
-        self.laser = True
-        self.laserX = self.getX() + self.rect.width / 2
-        self.laserYstart = self.getY()
-        self.laserY = self.getY()
-        self.image = Player.SPRITES['shoot']
-        self.rect = self.image.get_rect()
-        self.screen = screen
-        return self.getLaser()
     
     def stopx(self):
         print("Stop moving.")
@@ -129,14 +92,3 @@ class Player(pygame.sprite.Sprite):
         self.rect.x = max(0, min(self.x, Player.DISPLAY_WIDTH))
         self.rect.y = self.y
 
-        if self.laser:
-            self.laserY -= Player.LASER_SPEED
-            if self.laserY < 0:
-                self.laser = False
-                self.laserX = self.laserY = -1
-                self.screen = None
-            else:
-                pygame.draw.line(self.screen, Player.RED, (self.laserX, self.laserYstart), (self.laserX, self.laserY))
-
-
-        

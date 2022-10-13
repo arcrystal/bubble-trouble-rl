@@ -3,9 +3,9 @@ import pygame
 from player import Player
 from ball import Ball
 from floor import Floor
+from laser import Laser
 
 import math
-import time
 
 class Game:
     """
@@ -19,7 +19,7 @@ class Game:
     ORANGE = (255, 255,   0)
     YELLOW = (  0, 255, 255)
     FPS = 60
-    UPDATE_MULTIPLIER = 0.1
+    TIMESTEP = 0.1
     DISPLAY_WIDTH = 1280
     DISPLAY_HEIGHT = 960
     LVL_TIME = [20000, 40000, 50000, 75000, 100000, 125000]
@@ -48,8 +48,8 @@ class Game:
             group.add(Floor())
         self.objects[0].add(Ball(Game.DISPLAY_WIDTH // 4, Game.DISPLAY_HEIGHT // 6, 0, 0, 0, 9.81, 1))
         self.objects[1].add(Ball(Game.DISPLAY_WIDTH // 4, Game.DISPLAY_HEIGHT // 6, 0, 0, 0, 9.81, 2))
-        self.objects[1].add(Ball(Game.DISPLAY_WIDTH // 4, Game.DISPLAY_HEIGHT // 6, 0, 0, 0, 9.81, 3))
-        self.objects[1].add(
+        self.objects[2].add(Ball(Game.DISPLAY_WIDTH // 4, Game.DISPLAY_HEIGHT // 6, 0, 0, 0, 9.81, 3))
+        self.objects[3].add(
             Ball(Game.DISPLAY_WIDTH // 4, Game.DISPLAY_HEIGHT // 6, 0, 0, 0, 9.81, 2),
             Ball(3 * Game.DISPLAY_WIDTH // 4, Game.DISPLAY_HEIGHT // 6, 0, 0, 0, 9.81, 3))
         self.objects[5].add((
@@ -74,15 +74,6 @@ class Game:
         """
         return pygame.transform.scale(background, (Game.DISPLAY_WIDTH, Game.DISPLAY_HEIGHT))
 
-    def test_collision(self, ball, laser):
-        x, laserY, laserYstart = laser
-        radius = ball.rect.width / 2
-        for y in range(int(laserY), int(laserYstart)):
-            if radius >= math.dist(ball.rect.center, (x,y)):
-                return True
-
-        return False
-
     def draw_timer(self, timeleft):
         pygame.draw.line(
             self.screen, Game.BLACK,
@@ -98,10 +89,8 @@ class Game:
     def play(self):
         gameover = False
         nextLevel = False
-        laserX = -1
-        laserY = -1
-        laserYstart = -1
         shooting = False
+        laser = None
         i = 0
         clock = pygame.time.Clock()
         for lvl, (lvlsprites, background) in enumerate(zip(self.objects, self.backgrounds)):
@@ -112,7 +101,7 @@ class Game:
             # Set up timers
             timer = 0
             timeleft = Game.DISPLAY_WIDTH
-            pygame.time.wait(1000)
+            pygame.time.wait(250)
 
             # Display new level screen
             curr_background = self.load_background(background)
@@ -122,10 +111,15 @@ class Game:
             lvl_font_rect.center = Game.DISPLAY_WIDTH / 2, Game.DISPLAY_HEIGHT / 10
             self.screen.blit(lvl_font, lvl_font_rect)
             pygame.display.update()
-            pygame.time.wait(2000)
+            pygame.time.wait(500)
 
             # Convert sprite pixels
             player = lvlsprites.sprites()[0]
+            platform = lvlsprites.sprites()[1]
+            balls = pygame.sprite.Group()
+            for ball in lvlsprites.sprites()[2:]:
+                balls.add(ball)
+
             for sprites in lvlsprites:
                 for key, sprite in sprites.SPRITES.items():
                     sprites.SPRITES[key] = sprite.convert_alpha()
@@ -144,67 +138,63 @@ class Game:
                             player.right()
                         if event.key == pygame.K_UP:
                             if not shooting:
-                                laserX, laserY, laserYstart = player.shoot(self.screen)
+                                print("Shoot.")
                                 shooting = True
+                                laser = Laser(player.rect.centerx)
                         if event.key == pygame.K_SPACE:
                             player.jump()
-                        
+
                     if event.type == pygame.KEYUP:
                         if event.key == pygame.K_LEFT and player.xspeed < 0:
                             player.stopx()
                         if event.key == pygame.K_RIGHT and player.xspeed > 0:
                             player.stopx()
-                        if event.key == pygame.K_UP:
-                            player.stopshoot()
 
-                # Get laser information
-                if shooting:
-                    laserX, laserY, laserYstart = player.getLaser()
-                    if laserX == -1:
-                        shooting = False
 
                 # Draw and update screen
                 self.screen.blit(curr_background, (0, 0))
+
+                if shooting:
+                    hit_ceiling = laser.hitCeiling()
+                    if hit_ceiling:
+                        print("Laser hit ceiling.")
+                        shooting = False
+                    else:
+                        laser.update(Game.TIMESTEP)
+                        self.screen.blit(laser.curr, laser.rect)
+                
                 self.draw_timer(timeleft)
-                lvlsprites.update(Game.UPDATE_MULTIPLIER)
+                lvlsprites.update(Game.TIMESTEP)
                 lvlsprites.draw(self.screen)
                 pygame.display.update()
-                clock.tick(Game.FPS)   
+                clock.tick(Game.FPS)
                 timer += clock.get_time()
                 timeleft = Game.DISPLAY_WIDTH - Game.DISPLAY_WIDTH / (Game.LVL_TIME[lvl] / timer)
-
                 if timeleft <= 0:
                     gameover = True
                     print("Time ran out.")
                     break
 
-                for ball in lvlsprites.sprites()[2:]:
-                    collide = pygame.sprite.collide_mask(player, ball)
-                    if collide:
+                for ball in balls:
+                    if pygame.sprite.collide_mask(player, ball):
                         gameover = True
                         print("You lose.")
                         break
-                    if laserX != -1:
-                        if self.test_collision(ball, (laserX, laserY, laserYstart)):
+                    if shooting:
+                        if pygame.sprite.collide_mask(ball, laser):
+                            shooting = False
                             pop_result = ball.pop()
-                            if pop_result is None:
-                                lvlsprites.remove(ball)
-                                # Remove laser from screen
-                                player.setLaser(False)
-                                shooting = False
-                                laserX, laserY, laserYstart = -1, -1, -1
-                            else:
+                            lvlsprites.remove(ball)
+                            lvlsprites.remove(laser)
+                            balls.remove(ball)
+                            if pop_result is not None:
                                 lvlsprites.add(pop_result)
-                                lvlsprites.remove(ball)
-                                # Remove laser from screen
-                                player.setLaser(False)
+                                balls.add(pop_result)
                                 shooting = False
-                                laserX, laserY, laserYstart = -1, -1, -1
-                            
-                            print(lvlsprites)
+                    if pygame.sprite.collide_rect(ball, platform):
+                        ball.bounceY()
                 
                 if len(lvlsprites) == 2:
-                    laserX, laserY, laserYstart = -1, -1, -1
                     nextLevel = True
 
             nextLevel = False

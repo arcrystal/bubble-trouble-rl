@@ -7,6 +7,7 @@ class Ball(pygame.sprite.Sprite):
     """
     DISPLAY_WIDTH = 1280
     DISPLAY_HEIGHT = 960
+    SPEED = [50, 80, 130, 210, 340, 340, 340]
     SPRITES = {
         0:pygame.image.load("Sprites/ball1_sm.png"),
         1:pygame.image.load("Sprites/ball2_sm.png"),
@@ -29,6 +30,12 @@ class Ball(pygame.sprite.Sprite):
         self.image = Ball.SPRITES[ballsize]
         self.rect = self.image.get_rect()
         self.rect.center = (self.x, self.y)
+
+    def bounceX(self):
+        self.xspeed = -self.xspeed
+
+    def bounceY(self):
+        self.yspeed = -Ball.SPEED[self.ballsize]
 
     def update(self, t):
         """
@@ -54,19 +61,9 @@ class Ball(pygame.sprite.Sprite):
         # Update speed
         if self.x < 0 or self.x > Ball.DISPLAY_WIDTH - self.rect.width:
             self.xspeed = -self.xspeed
-        
-        if self.y > 9 * Ball.DISPLAY_HEIGHT / 10 - self.rect.height:
-            print("Bounce.")
-            self.yspeed = -self.yspeed
 
         self.xspeed += self.xacceleration * t
         self.yspeed += self.yacceleration * t
-
-        # # Deaccelerate if moving too quickly
-        # if self.xspeed > 5 * (10 - self.ballsize):
-        #     self.xacceleration = -10
-        # elif self.xspeed < 5 * (self.ballsize - 10):
-        #     self.xacceleration = 10
 
         # Update rect dimensions
         self.rect.x = self.x

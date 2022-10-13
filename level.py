@@ -1,12 +1,11 @@
 import pygame
 
-class Level():
+class Level(pygame.sprite.Group):
     """
     TODO:
     """
     
-    def __init__(self):
-        pass
-
-    def __iter__():
-        pass
+    def __init__(self, time, lvl):
+        super().__init__(self)
+        self.time = time
+        self.lvl = lvl
