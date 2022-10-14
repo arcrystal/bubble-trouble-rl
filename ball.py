@@ -7,7 +7,7 @@ class Ball(pygame.sprite.Sprite):
     """
     DISPLAY_WIDTH = 1280
     DISPLAY_HEIGHT = 960
-    SPEED = [50, 80, 130, 210, 340, 340, 340]
+    SPEED = [50, 65, 75, 85, 90, 95, 100]
     SPRITES = {
         0:pygame.image.load("Sprites/ball1_sm.png"),
         1:pygame.image.load("Sprites/ball2_sm.png"),

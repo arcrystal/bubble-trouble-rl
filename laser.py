@@ -30,7 +30,6 @@ class Laser():
         self.rect = self.image.get_rect()
         self.rect.x = self.x - self.image.get_width() / 2
         self.rect.y = 9 * Laser.DISPLAY_HEIGHT / 10 - self.curr.get_height()
-        print(self.rect.x, self.rect.y)
 
-    def hitCeiling(self):
-        return self.height > 9 * Laser.DISPLAY_HEIGHT / 10
+    def hitCeiling(self, t):
+        return self.rect.y < Laser.SPEED * t

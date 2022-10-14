@@ -86,6 +86,14 @@ class Game:
             (timeleft, Game.DISPLAY_HEIGHT-20),
             10)
 
+    def collide(self, laser, ball): # TODO Fix this
+        print(laser.rect.x, ball.x + ball.image.get_width(), laser.rect.x + laser.image.get_width(), ball.rect.x)
+        if laser.rect.x < ball.x + ball.image.get_width() and laser.rect.x + laser.image.get_width() < ball.rect.x:
+            if laser.rect.y < ball.rect.y + ball.image.get_height():
+                return True
+
+        return False
+
     def play(self):
         gameover = False
         nextLevel = False
@@ -140,6 +148,9 @@ class Game:
                             if not shooting:
                                 print("Shoot.")
                                 shooting = True
+                                if player.rect.x == 0:
+                                    print(player.rect.center)
+                                    exit()
                                 laser = Laser(player.rect.centerx)
                         if event.key == pygame.K_SPACE:
                             player.jump()
@@ -154,14 +165,32 @@ class Game:
                 # Draw and update screen
                 self.screen.blit(curr_background, (0, 0))
 
+                # Get collision updates
+                for ball in balls:
+                    if pygame.sprite.collide_mask(player, ball):
+                        gameover = True
+                        print("You lose.")
+                        break
+                    if shooting:
+                        if self.collide(laser, ball):
+                            print("Laser pop.")
+                            shooting = False
+                            pop_result = ball.pop()
+                            lvlsprites.remove(ball)
+                            balls.remove(ball)
+                            if pop_result is not None:
+                                lvlsprites.add(pop_result)
+                                balls.add(pop_result)
+                                shooting = False
+                        if laser.hitCeiling(Game.TIMESTEP):
+                            shooting = False
+                    if pygame.sprite.collide_rect(ball, platform):
+                        ball.bounceY()
+
+                # Draw laser
                 if shooting:
-                    hit_ceiling = laser.hitCeiling()
-                    if hit_ceiling:
-                        print("Laser hit ceiling.")
-                        shooting = False
-                    else:
-                        laser.update(Game.TIMESTEP)
-                        self.screen.blit(laser.curr, laser.rect)
+                    laser.update(Game.TIMESTEP)
+                    self.screen.blit(laser.curr, laser.rect)
                 
                 self.draw_timer(timeleft)
                 lvlsprites.update(Game.TIMESTEP)
@@ -169,30 +198,15 @@ class Game:
                 pygame.display.update()
                 clock.tick(Game.FPS)
                 timer += clock.get_time()
-                timeleft = Game.DISPLAY_WIDTH - Game.DISPLAY_WIDTH / (Game.LVL_TIME[lvl] / timer)
+                timeleft = Game.DISPLAY_WIDTH - Game.DISPLAY_WIDTH / Game.LVL_TIME[lvl] * timer
                 if timeleft <= 0:
                     gameover = True
                     print("Time ran out.")
                     break
 
-                for ball in balls:
-                    if pygame.sprite.collide_mask(player, ball):
-                        gameover = True
-                        print("You lose.")
-                        break
-                    if shooting:
-                        if pygame.sprite.collide_mask(ball, laser):
-                            shooting = False
-                            pop_result = ball.pop()
-                            lvlsprites.remove(ball)
-                            lvlsprites.remove(laser)
-                            balls.remove(ball)
-                            if pop_result is not None:
-                                lvlsprites.add(pop_result)
-                                balls.add(pop_result)
-                                shooting = False
-                    if pygame.sprite.collide_rect(ball, platform):
-                        ball.bounceY()
+                
+
+                
                 
                 if len(lvlsprites) == 2:
                     nextLevel = True
