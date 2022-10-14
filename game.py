@@ -147,9 +147,11 @@ class Game:
                             if not shooting:
                                 print("Shoot.")
                                 shooting = True
-                                if player.rect.x == 0: # BUG: player is moving to the side of the frame
-                                    print("BUG: player moved to", player.rect.center)
-                                    exit()
+
+                                # if player.rect.x == 0: # BUG: player is moving to the side of the frame
+                                #     print("BUG: player moved to", player.rect.x, player.rect.y)
+                                #     exit()
+
                                 laser = Laser(player.rect.centerx)
                         if event.key == pygame.K_SPACE:
                             player.jump()

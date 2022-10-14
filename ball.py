@@ -7,6 +7,7 @@ class Ball(pygame.sprite.Sprite):
     """
     DISPLAY_WIDTH = 1280
     DISPLAY_HEIGHT = DISPLAY_WIDTH / 1.9
+    XSPEED = DISPLAY_WIDTH / 100 # FPS, TIMESTEP
     SPEED = [50, 65, 75, 85, 90, 95, 100]
 
     # Ball size
@@ -30,17 +31,14 @@ class Ball(pygame.sprite.Sprite):
     for i in range(6):
         SPRITES[i] = pygame.transform.scale(SPRITES[i], (bsize[i], bsize[i]))
 
-    Y_ACC = 20
-
-    
-    
+    Y_ACC = DISPLAY_WIDTH / 64
 
     def __init__(self, x, y, xspeed, yspeed, xacceleration, yacceleration, ballsize):
         assert ballsize < 5
         super().__init__() # equivalent to pygame.sprite.Sprite.__init__(self)
         self.x = x
         self.y = y
-        self.xspeed = xspeed
+        self.xspeed = Ball.XSPEED
         self.yspeed = yspeed
         self.xacceleration = xacceleration
         self.yacceleration = Ball.Y_ACC
@@ -50,7 +48,10 @@ class Ball(pygame.sprite.Sprite):
         self.rect.center = (self.x, self.y)
 
     def bounceX(self):
-        self.xspeed = -self.xspeed
+        if self.x > Ball.DISPLAY_WIDTH / 2:
+            self.xspeed = -Ball.XSPEED
+        else:
+            self.xspeed = Ball.XSPEED
 
     def bounceY(self):
         self.yspeed = -Ball.SPEED[self.ballsize]

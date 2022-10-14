@@ -89,6 +89,11 @@ class Player(pygame.sprite.Sprite):
         self.y += self.yspeed * t
         self.yspeed += self.yacceleration
 
-        self.rect.x = max(0, min(self.x, Player.DISPLAY_WIDTH))
+        if self.x < 0:
+            self.x = 0
+        elif self.x > Player.DISPLAY_WIDTH:
+            self.x = Player.DISPLAY_WIDTH
+            
+        self.rect.x = self.x
         self.rect.y = self.y
 
