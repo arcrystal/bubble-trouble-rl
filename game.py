@@ -165,6 +165,11 @@ class Game:
                 # Draw and update screen
                 self.screen.blit(curr_background, (0, 0))
 
+
+                # Draw laser
+                if shooting:
+                    
+
                 # Get collision updates
                 for ball in balls:
                     if pygame.sprite.collide_mask(player, ball):
@@ -172,7 +177,9 @@ class Game:
                         print("You lose.")
                         break
                     if shooting:
-                        if self.collide(laser, ball):
+                        laser.update(Game.TIMESTEP)
+                        if pygame.sprite.collide_mask(laser, ball):
+                        #if self.collide(laser, ball):
                             print("Laser pop.")
                             shooting = False
                             pop_result = ball.pop()
@@ -182,15 +189,14 @@ class Game:
                                 lvlsprites.add(pop_result)
                                 balls.add(pop_result)
                                 shooting = False
-                        if laser.hitCeiling(Game.TIMESTEP):
+                        elif laser.hitCeiling(Game.TIMESTEP):
                             shooting = False
+                        else:
+                            self.screen.blit(laser.curr, laser.rect)
+
                     if pygame.sprite.collide_rect(ball, platform):
                         ball.bounceY()
 
-                # Draw laser
-                if shooting:
-                    laser.update(Game.TIMESTEP)
-                    self.screen.blit(laser.curr, laser.rect)
                 
                 self.draw_timer(timeleft)
                 lvlsprites.update(Game.TIMESTEP)
