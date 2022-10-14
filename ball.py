@@ -20,13 +20,15 @@ class Ball(pygame.sprite.Sprite):
         DISPLAY_WIDTH / 6.7718] # 412=b6
 
     # Ball bounce height (floor to bottom of ball)
-    b1bounceHeightMax = DISPLAY_WIDTH * 0.1695
-    b2bounceHeightMax = DISPLAY_WIDTH * 0.3498
-    b3bounceHeightMax = DISPLAY_WIDTH * 0.4292
-    b4bounceHeightMax = DISPLAY_WIDTH * 0.515
-    b5bounceHeightMax = DISPLAY_WIDTH * 0.5966
-    b6bounceHeightMax = DISPLAY_WIDTH * 0.6803
-    # Multiplied by t = 0.1
+    # [150.855, 311.322, 381.988, 458.35, 530.974]
+    b1bounceHeightMax = DISPLAY_HEIGHT * 0.1695
+    b2bounceHeightMax = DISPLAY_HEIGHT * 0.3498
+    b3bounceHeightMax = DISPLAY_HEIGHT * 0.4292
+    b4bounceHeightMax = DISPLAY_HEIGHT * 0.515
+    b5bounceHeightMax = DISPLAY_HEIGHT * 0.5966
+    b6bounceHeightMax = DISPLAY_HEIGHT * 0.6803
+
+    # Multiplied by t = 0.1 divided by FPS=52
     SPEED = [
         b1bounceHeightMax/5.2,
         b2bounceHeightMax/5.2,
