@@ -19,23 +19,6 @@ class Ball(pygame.sprite.Sprite):
         DISPLAY_WIDTH / 8.2301, # 339=b5
         DISPLAY_WIDTH / 6.7718] # 412=b6
 
-    # Ball bounce height (floor to bottom of ball)
-    # [150.855, 311.322, 381.988, 458.35, 530.974]
-    b1bounceHeightMax = DISPLAY_HEIGHT * 0.1695
-    b2bounceHeightMax = DISPLAY_HEIGHT * 0.3498
-    b3bounceHeightMax = DISPLAY_HEIGHT * 0.4292
-    b4bounceHeightMax = DISPLAY_HEIGHT * 0.515
-    b5bounceHeightMax = DISPLAY_HEIGHT * 0.5966
-    b6bounceHeightMax = DISPLAY_HEIGHT * 0.6803
-
-    # Multiplied by t = 0.1 divided by FPS=52
-    SPEED = [
-        b1bounceHeightMax/5.2,
-        b2bounceHeightMax/5.2,
-        b3bounceHeightMax/5.2,
-        b4bounceHeightMax/5.2,
-        b5bounceHeightMax/5.2]
-
     SPRITES = {
         0:pygame.image.load("Sprites/ball1_sm.png"),
         1:pygame.image.load("Sprites/ball2_sm.png"),
@@ -48,6 +31,18 @@ class Ball(pygame.sprite.Sprite):
     for i in range(6):
         SPRITES[i] = pygame.transform.scale(SPRITES[i], (bsize[i], bsize[i]))
 
+    # Ball bounce height (floor to bottom of ball)
+    # [150.855, 311.322, 381.988, 458.35, 530.974]
+    bbounce = [
+        DISPLAY_HEIGHT * 0.1695,
+        DISPLAY_HEIGHT * 0.3498,
+        DISPLAY_HEIGHT * 0.4292,
+        DISPLAY_HEIGHT * 0.515,
+        DISPLAY_HEIGHT * 0.5966,
+        DISPLAY_HEIGHT * 0.6803
+    ] 
+    # values will be multiplied by t=0.1 divided by FPS=52
+    SPEED = bbounce.copy()
     # Multiplied by t = 0.1
     Y_ACC = DISPLAY_WIDTH / 64 # 13.91
 
@@ -107,8 +102,6 @@ class Ball(pygame.sprite.Sprite):
         # Update rect dimensions
         self.rect.x = self.x
         self.rect.y = self.y
-        
-        
 
     def pop(self):
         """
@@ -129,5 +122,4 @@ class Ball(pygame.sprite.Sprite):
             newYspeed = -25
             return (Ball(self.x-10, self.y, -Ball.XSPEED, newYspeed, 0, self.ballsize-1),
                     Ball(self.x+10, self.y, Ball.XSPEED, newYspeed, 0, self.ballsize-1))
-            
 
