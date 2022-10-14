@@ -161,14 +161,8 @@ class Game:
                         if event.key == pygame.K_RIGHT and player.xspeed > 0:
                             player.stopx()
 
-
                 # Draw and update screen
                 self.screen.blit(curr_background, (0, 0))
-
-
-                # Draw laser
-                if shooting:
-                    
 
                 # Get collision updates
                 for ball in balls:
