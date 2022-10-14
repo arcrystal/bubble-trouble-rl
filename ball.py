@@ -42,13 +42,12 @@ class Ball(pygame.sprite.Sprite):
         DISPLAY_HEIGHT * 0.6803
     ] 
     # values will be multiplied by t=0.1 divided by FPS=52
-    SPEED = bbounce.copy()
+    SPEED = [sqrt(b*25) for b in bbounce]
     # Multiplied by t = 0.1
     Y_ACC = DISPLAY_WIDTH / 64 # 13.91
 
     def __init__(self, x, y, xspeed, yspeed, xacceleration, ballsize):
         assert ballsize < 5
-        print([x*5.2 for x in Ball.SPEED])
         super().__init__() # equivalent to pygame.sprite.Sprite.__init__(self)
         self.x = x
         self.y = y

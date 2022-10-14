@@ -11,7 +11,7 @@ import time
 
 class Game:
     """
-    Game object for ball breaker.
+    Game object for falling circles.
     """
     WHITE  = (255, 255, 255)
     BLACK  = (  0,   0,   0)
@@ -98,7 +98,6 @@ class Game:
         nextLevel = False
         shooting = False
         laser = None
-        i = 0
         clock = pygame.time.Clock()
         for lvl, (lvlsprites, background) in enumerate(zip(self.objects, self.backgrounds)):
             # Check gameover
