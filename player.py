@@ -7,9 +7,9 @@ class Player(pygame.sprite.Sprite):
     """
     RED = (255, 0, 0)
     DISPLAY_WIDTH = 1280
-    DISPLAY_HEIGHT = 960
+    DISPLAY_HEIGHT = DISPLAY_WIDTH / 1.9
     JUMP_CONSTANT = 8
-    SPEED = DISPLAY_WIDTH / 50
+    SPEED = DISPLAY_WIDTH / 5 / 52 / 0.1 # / secs / FPS / timestep
     SPRITES = {
         "still":pygame.image.load("Sprites/person_still_sm.png"),
         "shoot":pygame.image.load("Sprites/person_shoot_sm.png"),
@@ -81,9 +81,9 @@ class Player(pygame.sprite.Sprite):
         Raises:
             None.
         """
-        if self.y > 9 * Player.DISPLAY_HEIGHT / 10:
-            self.y = 9 * Player.DISPLAY_HEIGHT / 10
-            self.stopy()
+        if self.x > Player.DISPLAY_WIDTH - self.rect.width and self.xspeed > 0:
+            self.stopx()
+
 
         self.x += self.xspeed * t
         self.y += self.yspeed * t

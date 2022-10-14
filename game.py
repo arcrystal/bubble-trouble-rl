@@ -6,6 +6,8 @@ from floor import Floor
 from laser import Laser
 
 import math
+import time
+
 
 class Game:
     """
@@ -18,10 +20,10 @@ class Game:
     BLUE   = (  0,   0, 255)
     ORANGE = (255, 255,   0)
     YELLOW = (  0, 255, 255)
-    FPS = 60
+    FPS = 52
     TIMESTEP = 0.1
     DISPLAY_WIDTH = 1280
-    DISPLAY_HEIGHT = 960
+    DISPLAY_HEIGHT = DISPLAY_WIDTH / 1.9 # 960 / 4/3 --> 19/10
     LVL_TIME = [20000, 40000, 50000, 75000, 100000, 125000]
 
     def __init__(self):
@@ -36,10 +38,7 @@ class Game:
         self.font = pygame.font.SysFont('Calibri', 25, True, True)
         self.text = self.font.render(f"Score: {self.score}", True, Game.RED)
         self.screen.blit(self.text, (25, 25))
-        self.backgrounds = [
-            pygame.image.load("Backgrounds/bluepink.jpg").convert(),
-            pygame.image.load("Backgrounds/bluepurple.jpg").convert(),
-        ]
+        self.backgrounds = [pygame.image.load("Backgrounds/bluepink.jpg").convert()] * len(Game.LVL_TIME)
         # Initialize sprite Groups
         
         self.objects = [pygame.sprite.Group() for _ in range(10)]
@@ -148,8 +147,8 @@ class Game:
                             if not shooting:
                                 print("Shoot.")
                                 shooting = True
-                                if player.rect.x == 0:
-                                    print(player.rect.center)
+                                if player.rect.x == 0: # BUG: player is moving to the side of the frame
+                                    print("BUG: player moved to", player.rect.center)
                                     exit()
                                 laser = Laser(player.rect.centerx)
                         if event.key == pygame.K_SPACE:
@@ -191,7 +190,6 @@ class Game:
                     if pygame.sprite.collide_rect(ball, platform):
                         ball.bounceY()
 
-                
                 self.draw_timer(timeleft)
                 lvlsprites.update(Game.TIMESTEP)
                 lvlsprites.draw(self.screen)
@@ -203,12 +201,7 @@ class Game:
                     gameover = True
                     print("Time ran out.")
                     break
-
-                
-
-                
-                
-                if len(lvlsprites) == 2:
+                elif len(lvlsprites) == 2:
                     nextLevel = True
 
             nextLevel = False

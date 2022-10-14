@@ -6,8 +6,18 @@ class Ball(pygame.sprite.Sprite):
     A pygame object for the game.
     """
     DISPLAY_WIDTH = 1280
-    DISPLAY_HEIGHT = 960
+    DISPLAY_HEIGHT = DISPLAY_WIDTH / 1.9
     SPEED = [50, 65, 75, 85, 90, 95, 100]
+
+    # Ball size
+    bsize = [
+        DISPLAY_WIDTH / 50.7273, # 55=b1
+        DISPLAY_WIDTH / 29.3684, # 95=b2
+        DISPLAY_WIDTH / 15.7627, # 177=b3
+        DISPLAY_WIDTH / 10.856, # 257=b4
+        DISPLAY_WIDTH / 8.2301, # 339=b5
+        DISPLAY_WIDTH / 6.7718] # 412=b6
+
     SPRITES = {
         0:pygame.image.load("Sprites/ball1_sm.png"),
         1:pygame.image.load("Sprites/ball2_sm.png"),
@@ -17,6 +27,14 @@ class Ball(pygame.sprite.Sprite):
         5:pygame.image.load("Sprites/ball6_sm.png"),
         6:pygame.image.load("Sprites/ball7_sm.png")}
 
+    for i in range(6):
+        SPRITES[i] = pygame.transform.scale(SPRITES[i], (bsize[i], bsize[i]))
+
+    Y_ACC = 20
+
+    
+    
+
     def __init__(self, x, y, xspeed, yspeed, xacceleration, yacceleration, ballsize):
         assert ballsize < 5
         super().__init__() # equivalent to pygame.sprite.Sprite.__init__(self)
@@ -25,7 +43,7 @@ class Ball(pygame.sprite.Sprite):
         self.xspeed = xspeed
         self.yspeed = yspeed
         self.xacceleration = xacceleration
-        self.yacceleration = yacceleration
+        self.yacceleration = Ball.Y_ACC
         self.ballsize = ballsize
         self.image = Ball.SPRITES[ballsize]
         self.rect = self.image.get_rect()

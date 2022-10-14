@@ -5,7 +5,7 @@ class Floor(pygame.sprite.Sprite):
     A pygame object for the platform.
     """
     DISPLAY_WIDTH = 1280
-    DISPLAY_HEIGHT = 960
+    DISPLAY_HEIGHT = DISPLAY_WIDTH / 1.9
     SPRITES = {0:pygame.image.load("Sprites/platform.png")}
 
     def __init__(self):
