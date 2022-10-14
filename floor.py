@@ -11,11 +11,9 @@ class Floor(pygame.sprite.Sprite):
     def __init__(self):
         super().__init__() # equivalent to pygame.sprite.Sprite.__init__(self)
         self.image = Floor.SPRITES[0]
-        print(self.image.get_height())
         self.rect = self.image.get_rect()
         self.rect.x = 0
         self.rect.y = Floor.DISPLAY_HEIGHT
-        print(self.rect.y)
 
     def update(self, t):
         pass

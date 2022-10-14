@@ -19,14 +19,20 @@ class Ball(pygame.sprite.Sprite):
         DISPLAY_WIDTH / 8.2301, # 339=b5
         DISPLAY_WIDTH / 6.7718] # 412=b6
 
-    # Ball bounce height
-    b1bounceHeightMax = DISPLAY_WIDTH / 9.1111 / 5.2# 306
-    b2bounceHeightMax = DISPLAY_WIDTH / 4.5663 / 5.2 # 611
-    b3bounceHeightMax = DISPLAY_WIDTH / 3.4317 / 5.2 # 813
-    b4bounceHeightMax = DISPLAY_WIDTH / 2.7542 / 5.2 # 1013
-    b5bounceHeightMax = DISPLAY_WIDTH / 2.2928 / 5.2 # 1217
-    b6bounceHeightMax = DISPLAY_WIDTH / 1
-    SPEED = [b1bounceHeightMax,b2bounceHeightMax,b3bounceHeightMax,b4bounceHeightMax,b5bounceHeightMax]
+    # Ball bounce height (floor to bottom of ball)
+    b1bounceHeightMax = DISPLAY_WIDTH * 0.1695
+    b2bounceHeightMax = DISPLAY_WIDTH * 0.3498
+    b3bounceHeightMax = DISPLAY_WIDTH * 0.4292
+    b4bounceHeightMax = DISPLAY_WIDTH * 0.515
+    b5bounceHeightMax = DISPLAY_WIDTH * 0.5966
+    b6bounceHeightMax = DISPLAY_WIDTH * 0.6803
+    # Multiplied by t = 0.1
+    SPEED = [
+        b1bounceHeightMax/5.2,
+        b2bounceHeightMax/5.2,
+        b3bounceHeightMax/5.2,
+        b4bounceHeightMax/5.2,
+        b5bounceHeightMax/5.2]
 
     SPRITES = {
         0:pygame.image.load("Sprites/ball1_sm.png"),
@@ -40,10 +46,12 @@ class Ball(pygame.sprite.Sprite):
     for i in range(6):
         SPRITES[i] = pygame.transform.scale(SPRITES[i], (bsize[i], bsize[i]))
 
-    Y_ACC = DISPLAY_WIDTH / 64
+    # Multiplied by t = 0.1
+    Y_ACC = DISPLAY_WIDTH / 64 # 13.91
 
     def __init__(self, x, y, xspeed, yspeed, xacceleration, ballsize):
         assert ballsize < 5
+        print([x*5.2 for x in Ball.SPEED])
         super().__init__() # equivalent to pygame.sprite.Sprite.__init__(self)
         self.x = x
         self.y = y
@@ -116,7 +124,7 @@ class Ball(pygame.sprite.Sprite):
         if self.ballsize == 0:
             return None
         else:
-            newYspeed = -5
+            newYspeed = -25
             return (Ball(self.x-10, self.y, -Ball.XSPEED, newYspeed, 0, self.ballsize-1),
                     Ball(self.x+10, self.y, Ball.XSPEED, newYspeed, 0, self.ballsize-1))
             
