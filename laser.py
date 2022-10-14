@@ -5,8 +5,8 @@ class Laser():
     """
     A pygame object for the game.
     """
-    DISPLAY_WIDTH = 1280
-    DISPLAY_HEIGHT = DISPLAY_WIDTH / 1.9
+    DISPLAY_WIDTH = 890
+    DISPLAY_HEIGHT = DISPLAY_WIDTH / 1.8737
     # FPS = 52, TIMESTEP=0.1
     SPEED = DISPLAY_HEIGHT / 5.2 # FPS * TIMESTEP
     def __init__(self, x):
@@ -20,7 +20,7 @@ class Laser():
 
         self.rect = self.image.get_rect()
         self.rect.x = x - self.image.get_width() / 2
-        self.rect.y = 9 * Laser.DISPLAY_HEIGHT / 10 - self.image.get_height()
+        self.rect.y = Laser.DISPLAY_HEIGHT
 
     def getX(self):
         return self.x
@@ -34,7 +34,7 @@ class Laser():
             (self.image.get_width(), self.height))
         self.rect = self.image.get_rect()
         self.rect.x = self.x - self.image.get_width() / 2
-        self.rect.y = 9 * Laser.DISPLAY_HEIGHT / 10 - self.curr.get_height()
+        self.rect.y = Laser.DISPLAY_HEIGHT - self.curr.get_height()
 
     def hitCeiling(self, t):
         return self.rect.y < Laser.SPEED * t

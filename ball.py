@@ -5,10 +5,10 @@ class Ball(pygame.sprite.Sprite):
     """
     A pygame object for the game.
     """
-    DISPLAY_WIDTH = 1280
-    DISPLAY_HEIGHT = DISPLAY_WIDTH / 1.9
+    DISPLAY_WIDTH = 890
+    DISPLAY_HEIGHT = DISPLAY_WIDTH / 1.8737
     XSPEED = DISPLAY_WIDTH / 100 # FPS, TIMESTEP
-    SPEED = [50, 65, 75, 85, 90, 95, 100]
+    #SPEED = [50, 65, 75, 85, 90, 95, 100]
 
     # Ball size
     bsize = [
@@ -18,6 +18,15 @@ class Ball(pygame.sprite.Sprite):
         DISPLAY_WIDTH / 10.856, # 257=b4
         DISPLAY_WIDTH / 8.2301, # 339=b5
         DISPLAY_WIDTH / 6.7718] # 412=b6
+
+    # Ball bounce height
+    b1bounceHeightMax = DISPLAY_WIDTH / 9.1111 / 5.2# 306
+    b2bounceHeightMax = DISPLAY_WIDTH / 4.5663 / 5.2 # 611
+    b3bounceHeightMax = DISPLAY_WIDTH / 3.4317 / 5.2 # 813
+    b4bounceHeightMax = DISPLAY_WIDTH / 2.7542 / 5.2 # 1013
+    b5bounceHeightMax = DISPLAY_WIDTH / 2.2928 / 5.2 # 1217
+    b6bounceHeightMax = DISPLAY_WIDTH / 1
+    SPEED = [b1bounceHeightMax,b2bounceHeightMax,b3bounceHeightMax,b4bounceHeightMax,b5bounceHeightMax]
 
     SPRITES = {
         0:pygame.image.load("Sprites/ball1_sm.png"),
@@ -33,12 +42,12 @@ class Ball(pygame.sprite.Sprite):
 
     Y_ACC = DISPLAY_WIDTH / 64
 
-    def __init__(self, x, y, xspeed, yspeed, xacceleration, yacceleration, ballsize):
+    def __init__(self, x, y, xspeed, yspeed, xacceleration, ballsize):
         assert ballsize < 5
         super().__init__() # equivalent to pygame.sprite.Sprite.__init__(self)
         self.x = x
         self.y = y
-        self.xspeed = Ball.XSPEED
+        self.xspeed = xspeed
         self.yspeed = yspeed
         self.xacceleration = xacceleration
         self.yacceleration = Ball.Y_ACC
@@ -74,6 +83,7 @@ class Ball(pygame.sprite.Sprite):
         
         if self.y < 0:
             print("Ceiling pop!")
+            # TODO: spawn effect
             self.kill()
             return
         
@@ -106,8 +116,8 @@ class Ball(pygame.sprite.Sprite):
         if self.ballsize == 0:
             return None
         else:
-            newYspeed = self.yspeed - 25 if self.yspeed < 0 else -(5 / self.yspeed) * 25
-            return (Ball(self.x-10, self.y, -(10-self.ballsize)*2, newYspeed, 0, 9.81, self.ballsize-1),
-                    Ball(self.x+10, self.y, (10-self.ballsize)*2, newYspeed, 0, 9.81, self.ballsize-1))
+            newYspeed = -5
+            return (Ball(self.x-10, self.y, -Ball.XSPEED, newYspeed, 0, self.ballsize-1),
+                    Ball(self.x+10, self.y, Ball.XSPEED, newYspeed, 0, self.ballsize-1))
             
 

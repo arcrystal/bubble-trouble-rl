@@ -22,15 +22,15 @@ class Game:
     YELLOW = (  0, 255, 255)
     FPS = 52
     TIMESTEP = 0.1
-    DISPLAY_WIDTH = 1280
-    DISPLAY_HEIGHT = DISPLAY_WIDTH / 1.9 # 960 / 4/3 --> 19/10
+    DISPLAY_WIDTH = 890
+    DISPLAY_HEIGHT = DISPLAY_WIDTH / 1.8737
     LVL_TIME = [20000, 40000, 50000, 75000, 100000, 125000]
 
     def __init__(self):
         pygame.init()
         pygame.mixer.init()
         # Initialize gameplay window
-        self.screen = pygame.display.set_mode((Game.DISPLAY_WIDTH, Game.DISPLAY_HEIGHT))
+        self.screen = pygame.display.set_mode((Game.DISPLAY_WIDTH, Game.DISPLAY_HEIGHT+27+10)) # + platform_h + timer_h
         pygame.display.set_caption("Ball Breaker")
         # Initialize gameplay vars
         self.score = 0
@@ -45,16 +45,16 @@ class Game:
         for group in self.objects:
             group.add(Player())
             group.add(Floor())
-        self.objects[0].add(Ball(Game.DISPLAY_WIDTH // 4, Game.DISPLAY_HEIGHT // 6, 0, 0, 0, 9.81, 1))
-        self.objects[1].add(Ball(Game.DISPLAY_WIDTH // 4, Game.DISPLAY_HEIGHT // 6, 0, 0, 0, 9.81, 2))
-        self.objects[2].add(Ball(Game.DISPLAY_WIDTH // 4, Game.DISPLAY_HEIGHT // 6, 0, 0, 0, 9.81, 3))
+        self.objects[0].add(Ball(Game.DISPLAY_WIDTH // 4, Game.DISPLAY_HEIGHT // 6, 0, 0, 0, 1))
+        self.objects[1].add(Ball(Game.DISPLAY_WIDTH // 4, Game.DISPLAY_HEIGHT // 6, 0, 0, 0, 2))
+        self.objects[2].add(Ball(Game.DISPLAY_WIDTH // 4, Game.DISPLAY_HEIGHT // 6, 0, 0, 0, 3))
         self.objects[3].add(
-            Ball(Game.DISPLAY_WIDTH // 4, Game.DISPLAY_HEIGHT // 6, 0, 0, 0, 9.81, 2),
-            Ball(3 * Game.DISPLAY_WIDTH // 4, Game.DISPLAY_HEIGHT // 6, 0, 0, 0, 9.81, 3))
+            Ball(Game.DISPLAY_WIDTH // 4, Game.DISPLAY_HEIGHT // 6, 0, 0, 0, 2),
+            Ball(3 * Game.DISPLAY_WIDTH // 4, Game.DISPLAY_HEIGHT // 6, 0, 0, 0, 3))
         self.objects[5].add((
-            Ball(Game.DISPLAY_WIDTH // 2 - 45, Game.DISPLAY_HEIGHT // 6, 0, 0, 0, 9.81, 2),
-            Ball(Game.DISPLAY_WIDTH // 2 - 10, Game.DISPLAY_HEIGHT // 6, 0, 0, 0, 9.81, 3),
-            Ball(Game.DISPLAY_WIDTH // 2 + 40, Game.DISPLAY_HEIGHT // 6, 0, 0, 0, 9.81, 2)))
+            Ball(Game.DISPLAY_WIDTH // 2 - 45, Game.DISPLAY_HEIGHT // 6, 0, 0, 0, 2),
+            Ball(Game.DISPLAY_WIDTH // 2 - 10, Game.DISPLAY_HEIGHT // 6, 0, 0, 0, 3),
+            Ball(Game.DISPLAY_WIDTH // 2 + 40, Game.DISPLAY_HEIGHT // 6, 0, 0, 0, 2)))
 
     def play_music(self, filepath):
         pygame.mixer.music.load(filepath)
@@ -76,14 +76,14 @@ class Game:
     def draw_timer(self, timeleft):
         pygame.draw.line(
             self.screen, Game.BLACK,
-            (0, Game.DISPLAY_HEIGHT-10),
-            (timeleft, Game.DISPLAY_HEIGHT-10),
+            (0, Game.DISPLAY_HEIGHT+27),
+            (timeleft, Game.DISPLAY_HEIGHT+27),
             10)
-        pygame.draw.line(
-            self.screen, Game.WHITE,
-            (0, Game.DISPLAY_HEIGHT-20),
-            (timeleft, Game.DISPLAY_HEIGHT-20),
-            10)
+        # pygame.draw.line(
+        #     self.screen, Game.WHITE,
+        #     (0, Game.DISPLAY_HEIGHT-20),
+        #     (timeleft, Game.DISPLAY_HEIGHT-20),
+        #     10)
 
     def collide(self, laser, ball): # TODO Fix this
         print(laser.rect.x, ball.x + ball.image.get_width(), laser.rect.x + laser.image.get_width(), ball.rect.x)

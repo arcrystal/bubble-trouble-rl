@@ -6,8 +6,8 @@ class Player(pygame.sprite.Sprite):
     Player object for ball breaker Game().
     """
     RED = (255, 0, 0)
-    DISPLAY_WIDTH = 1280
-    DISPLAY_HEIGHT = DISPLAY_WIDTH / 1.9
+    DISPLAY_WIDTH = 890
+    DISPLAY_HEIGHT = DISPLAY_WIDTH / 1.8737
     JUMP_CONSTANT = 8
     SPEED = DISPLAY_WIDTH / 5 / 52 / 0.1 # / secs / FPS / timestep
     SPRITES = {
@@ -24,7 +24,7 @@ class Player(pygame.sprite.Sprite):
         self.image = Player.SPRITES['still']
         self.rect = self.image.get_rect()
         self.x = Player.DISPLAY_WIDTH / 2
-        self.y = 9 * Player.DISPLAY_HEIGHT / 10 - self.rect.height
+        self.y = Player.DISPLAY_HEIGHT - self.rect.height
         self.rect.x = self.x
         self.rect.y = self.y
 
@@ -93,7 +93,7 @@ class Player(pygame.sprite.Sprite):
             self.x = 0
         elif self.x > Player.DISPLAY_WIDTH:
             self.x = Player.DISPLAY_WIDTH
-            
+
         self.rect.x = self.x
         self.rect.y = self.y
 
