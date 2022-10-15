@@ -29,7 +29,7 @@ class Player(pygame.sprite.Sprite):
         self.rect.y = self.y
 
     def getX(self):
-        return self.x
+        return self.rect.centerx
 
     def getY(self):
         return self.y
@@ -45,6 +45,8 @@ class Player(pygame.sprite.Sprite):
         self.xspeed = 0
         self.image = Player.SPRITES['still']
         self.rect = self.image.get_rect()
+        self.rect.x = self.x
+        self.rect.y = self.y
 
     def stopy(self):
         self.yspeed = 0
@@ -55,19 +57,16 @@ class Player(pygame.sprite.Sprite):
         self.xspeed = -Player.SPEED
         self.image = Player.SPRITES['left']
         self.rect = self.image.get_rect()
+        self.rect.x = self.x
+        self.rect.y = self.y
 
     def right(self):
         print("Right.")
         self.xspeed = Player.SPEED
         self.image = Player.SPRITES['right']
         self.rect = self.image.get_rect()
-
-    def jump(self):
-        if self.y < 9 * Player.DISPLAY_HEIGHT / 10:
-            return
-        print("Jump.")
-        self.yspeed = -(Player.SPEED * Player.JUMP_CONSTANT)
-        self.yacceleration = 9.81
+        self.rect.x = self.x
+        self.rect.y = self.y
 
     def update(self, t):
         """
