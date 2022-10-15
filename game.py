@@ -45,16 +45,15 @@ class Game:
         for group in self.objects:
             group.add(Player())
             group.add(Floor())
-        self.objects[0].add(Ball(Game.DISPLAY_WIDTH // 4, Game.DISPLAY_HEIGHT // 6, 0, 0, 0, 1))
-        self.objects[1].add(Ball(Game.DISPLAY_WIDTH // 4, Game.DISPLAY_HEIGHT // 6, 0, 0, 0, 2))
-        self.objects[2].add(Ball(Game.DISPLAY_WIDTH // 4, Game.DISPLAY_HEIGHT // 6, 0, 0, 0, 3))
+        self.objects[0].add(Ball(Game.DISPLAY_WIDTH // 4, Game.DISPLAY_HEIGHT // 6, 0, 0, 0, 1, 'yellow'))
+        self.objects[1].add(Ball(Game.DISPLAY_WIDTH // 4, Game.DISPLAY_HEIGHT // 6, 0, 0, 0, 2, 'green'))
+        self.objects[2].add(Ball(Game.DISPLAY_WIDTH // 4, Game.DISPLAY_HEIGHT // 6, 0, 0, 0, 3, 'red'))
         self.objects[3].add(
-            Ball(Game.DISPLAY_WIDTH // 4, Game.DISPLAY_HEIGHT // 6, 0, 0, 0, 2),
-            Ball(3 * Game.DISPLAY_WIDTH // 4, Game.DISPLAY_HEIGHT // 6, 0, 0, 0, 3))
-        self.objects[5].add((
-            Ball(Game.DISPLAY_WIDTH // 2 - 45, Game.DISPLAY_HEIGHT // 6, 0, 0, 0, 2),
-            Ball(Game.DISPLAY_WIDTH // 2 - 10, Game.DISPLAY_HEIGHT // 6, 0, 0, 0, 3),
-            Ball(Game.DISPLAY_WIDTH // 2 + 40, Game.DISPLAY_HEIGHT // 6, 0, 0, 0, 2)))
+            Ball(Game.DISPLAY_WIDTH // 4, Game.DISPLAY_HEIGHT // 6, 'left', 0, 0, 2, 'orange'),
+            Ball(3 * Game.DISPLAY_WIDTH // 4, Game.DISPLAY_HEIGHT // 6, 'right', 0, 0, 2, 'orange'))
+        self.objects[5].add(
+            Ball(Game.DISPLAY_WIDTH // 2 - 45, Game.DISPLAY_HEIGHT // 6, 0, 0, 0, 2, 'yellow'),
+            Ball(Game.DISPLAY_WIDTH // 2 - 10, Game.DISPLAY_HEIGHT // 6, 0, 0, 0, 3, 'green'))
 
     def play_music(self, filepath):
         pygame.mixer.music.load(filepath)
@@ -85,8 +84,7 @@ class Game:
         #     (timeleft, Game.DISPLAY_HEIGHT-20),
         #     10)
 
-    def collide(self, laser, ball): # TODO Fix this
-        print(laser.rect.x, ball.x + ball.image.get_width(), laser.rect.x + laser.image.get_width(), ball.rect.x)
+    def collide(self, laser, ball):
         if laser.rect.x < ball.x + ball.image.get_width() and laser.rect.x + laser.image.get_width() < ball.rect.x:
             if laser.rect.y < ball.rect.y + ball.image.get_height():
                 return True
@@ -103,6 +101,8 @@ class Game:
             # Check gameover
             if gameover:
                 break
+
+            #if lvl!=3: continue # only play a certain level
 
             # Set up timers
             timer = 0
@@ -146,11 +146,6 @@ class Game:
                             if not shooting:
                                 print("Shoot.")
                                 shooting = True
-
-                                # if player.rect.x == 0: # BUG: player is moving to the side of the frame
-                                #     print("BUG: player moved to", player.rect.x, player.rect.y)
-                                #     exit()
-
                                 laser = Laser(player.rect.centerx)
                         if event.key == pygame.K_SPACE:
                             player.jump()
@@ -199,9 +194,9 @@ class Game:
                 timer += clock.get_time()
                 timeleft = Game.DISPLAY_WIDTH - Game.DISPLAY_WIDTH / Game.LVL_TIME[lvl] * timer
                 if timeleft <= 0:
-                    gameover = True
+                    gameover = False # True (Turn on game timer)
                     print("Time ran out.")
-                    break
+                    # break # uncomment (Turn on game timer)
                 elif len(lvlsprites) == 2:
                     nextLevel = True
 
