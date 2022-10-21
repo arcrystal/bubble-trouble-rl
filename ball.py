@@ -3,6 +3,7 @@ import os
 from numpy import sqrt
 
 TIMESTEP = float(os.environ.get('TIMESTEP'))
+FPS = float(os.environ.get('FPS'))
 DISPLAY_WIDTH = float(os.environ.get('DISPLAY_WIDTH'))
 DISPLAY_HEIGHT = DISPLAY_WIDTH / 1.8737
 
@@ -38,8 +39,9 @@ class Ball(pygame.sprite.Sprite):
         DISPLAY_HEIGHT * 0.5966,
         DISPLAY_HEIGHT * 0.6803
     ]
+    # BUG: Should be proportional to TIMESTEP, FPS
     SPEED = [sqrt(b*35) for b in bounce]
-    Y_ACC = DISPLAY_WIDTH / 42.657
+    Y_ACC = DISPLAY_WIDTH / 42.657 * TIMESTEP * FPS
 
     def __init__(self, x, y, xspeed, yspeed, xacceleration, ballsize, color):
         assert ballsize < 5
