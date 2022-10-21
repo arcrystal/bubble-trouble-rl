@@ -1,17 +1,18 @@
 import pygame
-from numpy import sqrt, arccos
+import os
+from numpy import sqrt
+
+TIMESTEP = float(os.environ.get('TIMESTEP'))
+DISPLAY_WIDTH = float(os.environ.get('DISPLAY_WIDTH'))
+DISPLAY_HEIGHT = DISPLAY_WIDTH / 1.8737
 
 class Ball(pygame.sprite.Sprite):
     """
     A pygame object for the game.
     """
-    DISPLAY_WIDTH = 890
-    DISPLAY_HEIGHT = DISPLAY_WIDTH / 1.8737
     XSPEED = DISPLAY_WIDTH / 75
-    #SPEED = [50, 65, 75, 85, 90, 95, 100]
-
     # Ball size
-    bsizes = [
+    sizes = [
         DISPLAY_WIDTH / 50.7273, # 55=b1
         DISPLAY_WIDTH / 29.3684, # 95=b2
         DISPLAY_WIDTH / 15.7627, # 177=b3
@@ -28,21 +29,17 @@ class Ball(pygame.sprite.Sprite):
         'orange':pygame.image.load("Sprites/ball_orange.png"),
         'pink':pygame.image.load("Sprites/ball_pink.png")}
 
-
     # Ball bounce height (floor to bottom of ball)
-    # [150.855, 311.322, 381.988, 458.35, 530.974]
-    bbounce = [
+    bounce = [
         DISPLAY_HEIGHT * 0.1695,
         DISPLAY_HEIGHT * 0.3498,
         DISPLAY_HEIGHT * 0.4292,
         DISPLAY_HEIGHT * 0.515,
         DISPLAY_HEIGHT * 0.5966,
         DISPLAY_HEIGHT * 0.6803
-    ] 
-    # values will be multiplied by t=0.1 divided by FPS=52
-    SPEED = [sqrt(b*35) for b in bbounce]
-    # Multiplied by t = 0.1
-    Y_ACC = DISPLAY_WIDTH / 42.657 # 13.91
+    ]
+    SPEED = [sqrt(b*35) for b in bounce]
+    Y_ACC = DISPLAY_WIDTH / 42.657
 
     def __init__(self, x, y, xspeed, yspeed, xacceleration, ballsize, color):
         assert ballsize < 5
@@ -63,12 +60,12 @@ class Ball(pygame.sprite.Sprite):
         self.yacceleration = Ball.Y_ACC
         self.ballsize = ballsize
         self.color = color
-        self.image = pygame.transform.scale(Ball.SPRITES[color], (Ball.bsizes[ballsize], Ball.bsizes[ballsize]))
+        self.image = pygame.transform.scale(Ball.SPRITES[color], (Ball.sizes[ballsize], Ball.sizes[ballsize]))
         self.rect = self.image.get_rect()
         self.rect.center = (self.x, self.y)
 
     def bounceX(self):
-        if self.x > Ball.DISPLAY_WIDTH / 2:
+        if self.x > DISPLAY_WIDTH / 2:
             self.xspeed = -Ball.XSPEED
         else:
             self.xspeed = Ball.XSPEED
@@ -76,7 +73,7 @@ class Ball(pygame.sprite.Sprite):
     def bounceY(self):
         self.yspeed = -Ball.SPEED[self.ballsize]
 
-    def update(self, t):
+    def update(self):
         """
         Overides pygame.sprite.Sprite.update()
         Applied when Group.update() is called.
@@ -89,8 +86,8 @@ class Ball(pygame.sprite.Sprite):
             None.
         """
         # Update position
-        self.x += self.xspeed * t
-        self.y += self.yspeed * t
+        self.x += self.xspeed * TIMESTEP
+        self.y += self.yspeed * TIMESTEP
         
         if self.y < 0:
             print("Ceiling pop!")
@@ -99,11 +96,11 @@ class Ball(pygame.sprite.Sprite):
             return
         
         # Update speed
-        if self.x < 0 or self.x > Ball.DISPLAY_WIDTH - self.rect.width:
+        if self.x < 0 or self.x > DISPLAY_WIDTH - self.rect.width:
             self.xspeed = -self.xspeed
 
-        self.xspeed += self.xacceleration * t
-        self.yspeed += self.yacceleration * t
+        self.xspeed += self.xacceleration * TIMESTEP
+        self.yspeed += self.yacceleration * TIMESTEP
 
         # Update rect dimensions
         self.rect.x = self.x

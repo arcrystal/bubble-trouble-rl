@@ -1,15 +1,19 @@
 
 import pygame
+import os
+
+
+DISPLAY_WIDTH = float(os.environ.get('DISPLAY_WIDTH'))
+DISPLAY_HEIGHT = DISPLAY_WIDTH / 1.8737
+FPS = float(os.environ.get('FPS'))
+TIMESTEP = float(os.environ.get('TIMESTEP'))
 
 class Player(pygame.sprite.Sprite):
     """
     Player object for ball breaker Game().
     """
     RED = (255, 0, 0)
-    DISPLAY_WIDTH = 890
-    DISPLAY_HEIGHT = DISPLAY_WIDTH / 1.8737
-    JUMP_CONSTANT = 8
-    SPEED = DISPLAY_WIDTH / 5 / 52 / 0.1 # / secs / FPS / timestep
+    SPEED = DISPLAY_WIDTH / 5 / FPS / TIMESTEP
     SPRITES = {
         "still":pygame.image.load("Sprites/person_still_sm.png"),
         "shoot":pygame.image.load("Sprites/person_shoot_sm.png"),
@@ -23,8 +27,8 @@ class Player(pygame.sprite.Sprite):
         self.yacceleration = 0
         self.image = Player.SPRITES['still']
         self.rect = self.image.get_rect()
-        self.x = Player.DISPLAY_WIDTH / 2
-        self.y = Player.DISPLAY_HEIGHT - self.rect.height
+        self.x = DISPLAY_WIDTH / 2
+        self.y = DISPLAY_HEIGHT - self.rect.height
         self.rect.x = self.x
         self.rect.y = self.y
 
@@ -68,7 +72,7 @@ class Player(pygame.sprite.Sprite):
         self.rect.x = self.x
         self.rect.y = self.y
 
-    def update(self, t):
+    def update(self):
         """
         Overides pygame.sprite.Sprite.update()
         Applied when Group.update() is called.
@@ -80,18 +84,18 @@ class Player(pygame.sprite.Sprite):
         Raises:
             None.
         """
-        if self.x > Player.DISPLAY_WIDTH - self.rect.width and self.xspeed > 0:
+        if self.x > DISPLAY_WIDTH - self.rect.width and self.xspeed > 0:
             self.stopx()
 
 
-        self.x += self.xspeed * t
-        self.y += self.yspeed * t
+        self.x += self.xspeed * TIMESTEP
+        self.y += self.yspeed * TIMESTEP
         self.yspeed += self.yacceleration
 
         if self.x < 0:
             self.x = 0
-        elif self.x > Player.DISPLAY_WIDTH:
-            self.x = Player.DISPLAY_WIDTH
+        elif self.x > DISPLAY_WIDTH:
+            self.x = DISPLAY_WIDTH
 
         self.rect.x = self.x
         self.rect.y = self.y
