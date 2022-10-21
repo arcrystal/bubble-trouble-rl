@@ -175,10 +175,9 @@ class Game:
                             gameover = True
                             break
 
+                        shooting = False
                         lvlsprites, player, balls, platform, background, timer, timeleft \
                             = self.init_level(lvl, lives, False)
-                        timer = 0
-                        timeleft = DISPLAY_WIDTH
                         break
 
                     if shooting:
@@ -209,14 +208,15 @@ class Game:
                 timer += clock.get_time()
                 timeleft = DISPLAY_WIDTH - DISPLAY_WIDTH / Game.LVL_TIME[lvl-1] * timer
                 if timeleft <= 0:
+                    lives -= 1
                     print("Time ran out.")
                     print("Lost life.", lives, "left.")
-                    lives -= 1
                     if lives == 0:
                         print("You lose.")
                         gameover = True
                         break
 
+                    shooting = False
                     lvlsprites, player, balls, platform, background, timer, timeleft \
                         = self.init_level(lvl, lives, False)
                 elif not balls:
