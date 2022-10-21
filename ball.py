@@ -41,7 +41,7 @@ class Ball(pygame.sprite.Sprite):
     ]
     # BUG: Should be proportional to TIMESTEP, FPS
     SPEED = [sqrt(b*35) for b in bounce]
-    Y_ACC = DISPLAY_WIDTH / 42.657 * TIMESTEP * FPS
+    Y_ACC = DISPLAY_WIDTH / 42.657
 
     def __init__(self, x, y, xspeed, yspeed, xacceleration, ballsize, color):
         assert ballsize < 5
