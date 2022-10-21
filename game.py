@@ -158,9 +158,9 @@ class Game:
 
                     if event.type == pygame.KEYUP:
                         if event.key == pygame.K_LEFT and player.xspeed < 0:
-                            player.stopx()
+                            player.stop()
                         if event.key == pygame.K_RIGHT and player.xspeed > 0:
-                            player.stopx()
+                            player.stop()
 
                 # Draw and update screen
                 self.screen.blit(background, (0, 0))
@@ -193,7 +193,7 @@ class Game:
                                 lvlsprites.add(pop_result)
                                 balls.add(pop_result)
                                 shooting = False
-                        elif laser.hitCeiling(TIMESTEP):
+                        elif laser.hitCeiling():
                             shooting = False
                         else:
                             self.screen.blit(laser.curr, laser.rect)
@@ -217,9 +217,8 @@ class Game:
                         gameover = True
                         break
 
-                    lvlsprites, player, balls, platform, background \
+                    lvlsprites, player, balls, platform, background, timer, timeleft \
                         = self.init_level(lvl, lives, False)
-                    break
                 elif not balls:
                     nextLevel = True
 

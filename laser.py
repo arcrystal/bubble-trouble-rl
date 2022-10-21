@@ -11,8 +11,8 @@ class Laser():
     """
     A pygame object for the game.
     """
-    MULTIPLIER = 10 * TIMESTEP / 52 * FPS
-    SPEED = DISPLAY_HEIGHT / FPS / TIMESTEP
+    MULTIPLIER = (TIMESTEP / 0.1) * (FPS / 52)
+    # STEP = DISPLAY_HEIGHT / FPS / TIMESTEPß
     def __init__(self, x):
         self.time = time.time()
         self.x = x
@@ -40,5 +40,5 @@ class Laser():
         self.rect.x = self.x - self.image.get_width() / 2
         self.rect.y = DISPLAY_HEIGHT - self.curr.get_height()
 
-    def hitCeiling(self, t):
-        return self.rect.y < Laser.SPEED * t
+    def hitCeiling(self):
+        return self.rect.y < 0

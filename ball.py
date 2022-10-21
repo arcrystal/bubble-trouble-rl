@@ -120,7 +120,7 @@ class Ball(pygame.sprite.Sprite):
         print("Laser Pop!")
         # Velocity of new balls is the sum of the vectors of the ball and laser beam
         if self.ballsize == 0:
-            return None
+            return
         else:
             newYspeed = -25
             return (Ball(self.x-10, self.y, -Ball.XSPEED, newYspeed, 0, self.ballsize-1, self.color),

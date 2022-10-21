@@ -13,7 +13,7 @@ class Player(pygame.sprite.Sprite):
     Player object for ball breaker Game().
     """
     RED = (255, 0, 0)
-    SPEED = DISPLAY_WIDTH / 5 / FPS / TIMESTEP
+    SPEED = DISPLAY_WIDTH / 135.2 * FPS * TIMESTEP
     SPRITES = {
         "still":pygame.image.load("Sprites/person_still_sm.png"),
         "shoot":pygame.image.load("Sprites/person_shoot_sm.png"),
@@ -44,17 +44,13 @@ class Player(pygame.sprite.Sprite):
     def setX(self, x):
         self.x = x
     
-    def stopx(self):
+    def stop(self):
         print("Stop moving.")
         self.xspeed = 0
         self.image = Player.SPRITES['still']
         self.rect = self.image.get_rect()
         self.rect.x = self.x
         self.rect.y = self.y
-
-    def stopy(self):
-        self.yspeed = 0
-        self.yacceleration = 0
 
     def left(self):
         print("Left.")
@@ -85,18 +81,15 @@ class Player(pygame.sprite.Sprite):
             None.
         """
         if self.x > DISPLAY_WIDTH - self.rect.width and self.xspeed > 0:
-            self.stopx()
-
+            self.x = DISPLAY_WIDTH - self.rect.width
+            self.rect.x = self.x
+            self.stop()
+            return
+        elif self.x < 0 and self.xspeed < 0:
+            self.x = 0
+            self.rect.x = self.x
+            self.stop()
+            return
 
         self.x += self.xspeed * TIMESTEP
-        self.y += self.yspeed * TIMESTEP
-        self.yspeed += self.yacceleration
-
-        if self.x < 0:
-            self.x = 0
-        elif self.x > DISPLAY_WIDTH:
-            self.x = DISPLAY_WIDTH
-
         self.rect.x = self.x
-        self.rect.y = self.y
-
