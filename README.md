@@ -17,4 +17,8 @@
 
     $ conda activate bubbletrouble
 
+## Play game
+
+    $ python main.py
+
     
