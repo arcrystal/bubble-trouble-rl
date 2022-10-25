@@ -3,17 +3,18 @@ import pygame
 import os
 
 
-DISPLAY_WIDTH = float(os.environ.get('DISPLAY_WIDTH'))
-DISPLAY_HEIGHT = DISPLAY_WIDTH / 1.8737
 FPS = float(os.environ.get('FPS'))
-TIMESTEP = float(os.environ.get('TIMESTEP'))
+DISPLAY_WIDTH = float(os.environ.get('DISPLAY_WIDTH'))
+TIMESTEP = 1 / FPS
+DISPLAY_HEIGHT = DISPLAY_WIDTH / 1.8737
 
 class Player(pygame.sprite.Sprite):
     """
     Player object for ball breaker Game().
     """
     RED = (255, 0, 0)
-    SPEED = DISPLAY_WIDTH / 135.2 * FPS * TIMESTEP
+    SPEED = DISPLAY_WIDTH / 5
+
     SPRITES = {
         "still":pygame.image.load("Sprites/person_still_sm.png"),
         "shoot":pygame.image.load("Sprites/person_shoot_sm.png"),

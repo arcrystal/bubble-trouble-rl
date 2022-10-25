@@ -2,10 +2,11 @@ import pygame
 import os
 from numpy import sqrt
 
-TIMESTEP = float(os.environ.get('TIMESTEP'))
 FPS = float(os.environ.get('FPS'))
+TIMESTEP = 1 / FPS
 DISPLAY_WIDTH = float(os.environ.get('DISPLAY_WIDTH'))
-DISPLAY_HEIGHT = DISPLAY_WIDTH / 1.8737
+DISPLAY_HEIGHT = DISPLAY_WIDTH / 1.8737 # Default 475
+YACC = DISPLAY_HEIGHT
 
 class Ball(pygame.sprite.Sprite):
     """
@@ -31,17 +32,25 @@ class Ball(pygame.sprite.Sprite):
         'pink':pygame.image.load("Sprites/ball_pink.png")}
 
     # Ball bounce height (floor to bottom of ball)
-    bounce = [
+    
+    bounce_height = [
         DISPLAY_HEIGHT * 0.1695,
-        DISPLAY_HEIGHT * 0.3498,
-        DISPLAY_HEIGHT * 0.4292,
+        DISPLAY_HEIGHT * 0.3498, # this num is 166.1536 right now ball bounces 312
+        DISPLAY_HEIGHT * 0.4292, # this num is 203.868 but right now ball bounces 238
         DISPLAY_HEIGHT * 0.515,
         DISPLAY_HEIGHT * 0.5966,
         DISPLAY_HEIGHT * 0.6803
     ]
-    # BUG: Should be proportional to TIMESTEP, FPS
-    SPEED = [sqrt(b*35) for b in bounce]
-    Y_ACC = DISPLAY_WIDTH / 42.657
+    bounce_time = [
+        # seconds / bounce / 2
+        27.17 / 25 / 2,
+        35.29 / 23 / 2,
+        32.08 / 18 / 2,
+        17.48 / 10 / 2
+    ]
+
+    # (height + 	½at2)/t = v0y # initial y_velocity
+    YSPEED = [YACC * t for t in bounce_time]
 
     def __init__(self, x, y, xspeed, yspeed, xacceleration, ballsize, color):
         assert ballsize < 5
@@ -59,10 +68,11 @@ class Ball(pygame.sprite.Sprite):
 
         self.yspeed = yspeed
         self.xacceleration = xacceleration
-        self.yacceleration = Ball.Y_ACC
         self.ballsize = ballsize
         self.color = color
-        self.image = pygame.transform.scale(Ball.SPRITES[color], (Ball.sizes[ballsize], Ball.sizes[ballsize]))
+        self.image = pygame.transform.scale(
+            Ball.SPRITES[color],
+            (Ball.sizes[ballsize], Ball.sizes[ballsize]))
         self.rect = self.image.get_rect()
         self.rect.center = (self.x, self.y)
 
@@ -73,7 +83,7 @@ class Ball(pygame.sprite.Sprite):
             self.xspeed = Ball.XSPEED
 
     def bounceY(self):
-        self.yspeed = -Ball.SPEED[self.ballsize]
+        self.yspeed = -Ball.YSPEED[self.ballsize]
 
     def update(self):
         """
@@ -87,13 +97,16 @@ class Ball(pygame.sprite.Sprite):
         Raises:
             None.
         """
+        if self.yspeed < 10 and self.yspeed > -10:
+            print("Speed:", self.yspeed, "Pos:", self.y, self.rect.height)
         # Update position
         self.x += self.xspeed * TIMESTEP
-        self.y += self.yspeed * TIMESTEP
+        # y = y0 + v0yt + ½at2
+        y0 = self.y
+        self.y += self.yspeed * TIMESTEP + 0.5 * YACC * TIMESTEP ** 2
         
         if self.y < 0:
             print("Ceiling pop!")
-            # TODO: spawn effect
             self.kill()
             return
         
@@ -102,7 +115,8 @@ class Ball(pygame.sprite.Sprite):
             self.xspeed = -self.xspeed
 
         self.xspeed += self.xacceleration * TIMESTEP
-        self.yspeed += self.yacceleration * TIMESTEP
+        # vy2	 = v0y2 − 2g(y − y0)
+        self.yspeed += YACC * TIMESTEP
 
         # Update rect dimensions
         self.rect.x = self.x
@@ -120,11 +134,22 @@ class Ball(pygame.sprite.Sprite):
             None.
         """
         print("Laser Pop!")
-        # Velocity of new balls is the sum of the vectors of the ball and laser beam
         if self.ballsize == 0:
             return
         else:
             newYspeed = -25
-            return (Ball(self.x-10, self.y, -Ball.XSPEED, newYspeed, 0, self.ballsize-1, self.color),
-                    Ball(self.x+10, self.y, Ball.XSPEED, newYspeed, 0, self.ballsize-1, self.color))
+            return (Ball(self.x-10, self.y, -Ball.XSPEED, newYspeed,
+                    0, self.ballsize-1, self.color),
+                    Ball(self.x+10, self.y, Ball.XSPEED, newYspeed,
+                    0, self.ballsize-1, self.color))
 
+
+x = [
+        DISPLAY_HEIGHT * 0.1695,
+        DISPLAY_HEIGHT * 0.3498, # right now is 312
+        DISPLAY_HEIGHT * 0.4292,
+        DISPLAY_HEIGHT * 0.515,
+        DISPLAY_HEIGHT * 0.5966,
+        DISPLAY_HEIGHT * 0.6803
+    ]
+print("YACC1:", YACC)

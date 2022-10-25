@@ -6,10 +6,10 @@ from ball import Ball
 from floor import Floor
 from laser import Laser
 
+FPS = float(os.environ.get('FPS'))
+TIMESTEP = 1 / FPS
 DISPLAY_WIDTH = float(os.environ.get('DISPLAY_WIDTH'))
 DISPLAY_HEIGHT = DISPLAY_WIDTH / 1.8737
-FPS = float(os.environ.get('FPS'))
-TIMESTEP = float(os.environ.get('TIMESTEP'))
 
 class Game:
     """
@@ -204,6 +204,7 @@ class Game:
                 lvlsprites.update()
                 lvlsprites.draw(self.screen)
                 pygame.display.update()
+                # means that for every (1 / FPS) seconds, FPS frames should pass.
                 clock.tick(FPS)
                 timer += clock.get_time()
                 timeleft = DISPLAY_WIDTH - DISPLAY_WIDTH / Game.LVL_TIME[lvl-1] * timer

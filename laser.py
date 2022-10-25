@@ -2,16 +2,15 @@ import pygame
 import time
 import os
 
+FPS = float(os.environ.get('FPS'))
+TIMESTEP = 1 / FPS
 DISPLAY_WIDTH = float(os.environ.get('DISPLAY_WIDTH'))
 DISPLAY_HEIGHT = DISPLAY_WIDTH / 1.8737
-FPS = float(os.environ.get('FPS'))
-TIMESTEP = float(os.environ.get('TIMESTEP'))
 
 class Laser():
     """
     A pygame object for the game.
     """
-    MULTIPLIER = (TIMESTEP / 0.1) * (FPS / 52)
     # STEP = DISPLAY_HEIGHT / FPS / TIMESTEPß
     def __init__(self, x):
         self.time = time.time()
@@ -30,9 +29,7 @@ class Laser():
         return self.x
 
     def update(self):
-        step = DISPLAY_HEIGHT * (time.time() - self.time) * Laser.MULTIPLIER
-        self.time = time.time()
-        self.height += step
+        self.height += DISPLAY_HEIGHT * TIMESTEP
         self.curr = pygame.transform.scale(
             self.image,
             (self.image.get_width(), self.height))
