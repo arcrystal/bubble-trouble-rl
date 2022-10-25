@@ -5,14 +5,22 @@ from numpy import sqrt
 FPS = float(os.environ.get('FPS'))
 TIMESTEP = 1 / FPS
 DISPLAY_WIDTH = float(os.environ.get('DISPLAY_WIDTH'))
-DISPLAY_HEIGHT = DISPLAY_WIDTH / 1.8737 # Default 475
-YACC = DISPLAY_HEIGHT
+DISPLAY_HEIGHT = DISPLAY_WIDTH * 0.5337 # Default 475
+YACC = [
+    # DISPLAY HEIGHT --> ballY == 229
+    DISPLAY_HEIGHT, # DONE
+    DISPLAY_HEIGHT * 1.03, # DONE
+    DISPLAY_HEIGHT * 0.82, # DONE
+    DISPLAY_HEIGHT * 0.95, # DONE
+    DISPLAY_HEIGHT * 1, # NOT
+    DISPLAY_HEIGHT * 1 # NOT
+]
 
 class Ball(pygame.sprite.Sprite):
     """
     A pygame object for the game.
     """
-    XSPEED = DISPLAY_WIDTH / 75
+    XSPEED = DISPLAY_WIDTH / 5
     # Ball size
     sizes = [
         DISPLAY_WIDTH / 50.7273, # 55=b1
@@ -33,13 +41,13 @@ class Ball(pygame.sprite.Sprite):
 
     # Ball bounce height (floor to bottom of ball)
     
-    bounce_height = [
-        DISPLAY_HEIGHT * 0.1695,
-        DISPLAY_HEIGHT * 0.3498, # this num is 166.1536 right now ball bounces 312
-        DISPLAY_HEIGHT * 0.4292, # this num is 203.868 but right now ball bounces 238
-        DISPLAY_HEIGHT * 0.515,
-        DISPLAY_HEIGHT * 0.5966,
-        DISPLAY_HEIGHT * 0.6803
+    BOUNCE_HEIGHT = [
+        DISPLAY_HEIGHT - DISPLAY_HEIGHT * 0.1695,
+        DISPLAY_HEIGHT - DISPLAY_HEIGHT * 0.3498, # this num is 166.1536 right now ball bounces 312
+        DISPLAY_HEIGHT - DISPLAY_HEIGHT * 0.4292, # this num is 203.868 but right now ball bounces 238
+        DISPLAY_HEIGHT - DISPLAY_HEIGHT * 0.515,
+        DISPLAY_HEIGHT - DISPLAY_HEIGHT * 0.5966,
+        DISPLAY_HEIGHT - DISPLAY_HEIGHT * 0.6803
     ]
     bounce_time = [
         # seconds / bounce / 2
@@ -48,9 +56,7 @@ class Ball(pygame.sprite.Sprite):
         32.08 / 18 / 2,
         17.48 / 10 / 2
     ]
-
-    # (height + 	½at2)/t = v0y # initial y_velocity
-    YSPEED = [YACC * t for t in bounce_time]
+    YSPEED = [YACC[i] * t for i, t in enumerate(bounce_time)]
 
     def __init__(self, x, y, xspeed, yspeed, xacceleration, ballsize, color):
         assert ballsize < 5
@@ -98,12 +104,12 @@ class Ball(pygame.sprite.Sprite):
             None.
         """
         if self.yspeed < 10 and self.yspeed > -10:
-            print("Speed:", self.yspeed, "Pos:", self.y, self.rect.height)
+            print("H", round(Ball.BOUNCE_HEIGHT[self.ballsize]), " :  ballY", round(self.y))
         # Update position
         self.x += self.xspeed * TIMESTEP
         # y = y0 + v0yt + ½at2
         y0 = self.y
-        self.y += self.yspeed * TIMESTEP + 0.5 * YACC * TIMESTEP ** 2
+        self.y += self.yspeed * TIMESTEP + 0.5 * YACC[self.ballsize] * TIMESTEP ** 2
         
         if self.y < 0:
             print("Ceiling pop!")
@@ -116,7 +122,7 @@ class Ball(pygame.sprite.Sprite):
 
         self.xspeed += self.xacceleration * TIMESTEP
         # vy2	 = v0y2 − 2g(y − y0)
-        self.yspeed += YACC * TIMESTEP
+        self.yspeed += YACC[self.ballsize] * TIMESTEP
 
         # Update rect dimensions
         self.rect.x = self.x
@@ -144,12 +150,13 @@ class Ball(pygame.sprite.Sprite):
                     0, self.ballsize-1, self.color))
 
 
-x = [
-        DISPLAY_HEIGHT * 0.1695,
-        DISPLAY_HEIGHT * 0.3498, # right now is 312
-        DISPLAY_HEIGHT * 0.4292,
-        DISPLAY_HEIGHT * 0.515,
-        DISPLAY_HEIGHT * 0.5966,
-        DISPLAY_HEIGHT * 0.6803
-    ]
-print("YACC1:", YACC)
+bounce_height = [
+    DISPLAY_HEIGHT - DISPLAY_HEIGHT * 0.1695,
+    DISPLAY_HEIGHT - DISPLAY_HEIGHT * 0.3498, # this num is 166.1536 right now ball bounces 312
+    DISPLAY_HEIGHT - DISPLAY_HEIGHT * 0.4292, # this num is 203.868 but right now ball bounces 238
+    DISPLAY_HEIGHT - DISPLAY_HEIGHT * 0.515,
+    DISPLAY_HEIGHT - DISPLAY_HEIGHT * 0.5966,
+    DISPLAY_HEIGHT - DISPLAY_HEIGHT * 0.6803
+]
+print("Bounce height:", bounce_height)
+print("YACC:", YACC)

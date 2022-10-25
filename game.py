@@ -22,7 +22,7 @@ class Game:
     BLUE   = (  0,   0, 255)
     ORANGE = (255, 255,   0)
     YELLOW = (  0, 255, 255)
-    LVL_TIME = [20000, 35000, 50000, 65000, 80000, 90000]
+    LVL_TIME = [20000, 35000, 50000, 65000, 80000, 90000, 100000, 100000]
 
     def __init__(self):
         pygame.init()
@@ -64,6 +64,15 @@ class Game:
             balls.add(
                 Ball(DISPLAY_WIDTH // 3, DISPLAY_HEIGHT // 6, 0, 0, 0, 2, 'yellow'),
                 Ball(2*DISPLAY_WIDTH // 3 - 10, DISPLAY_HEIGHT // 6, 0, 0, 0, 3, 'green'))
+        elif lvl == 6:
+            dw5 = DISPLAY_WIDTH / 10
+            balls.add(
+                Ball(  DISPLAY_WIDTH // 7, 394, dw5, 0, 0, 0, 'purple'),
+                Ball(2*DISPLAY_WIDTH // 7, 394, dw5, 0, 0, 0, 'purple'),
+                Ball(3*DISPLAY_WIDTH // 7, 394, dw5, 0, 0, 0, 'purple'),
+                Ball(4*DISPLAY_WIDTH // 7, 394, dw5, 0, 0, 0, 'purple'),
+                Ball(5*DISPLAY_WIDTH // 7, 394, dw5, 0, 0, 0, 'purple'),
+                Ball(6*DISPLAY_WIDTH // 7, 394, dw5, 0, 0, 0, 'purple'))
 
         player = Player()
         platform = Floor()
@@ -92,9 +101,22 @@ class Game:
             lives_font_rect.center = DISPLAY_WIDTH / 2, DISPLAY_HEIGHT / 10
             self.screen.blit(lives_font, lives_font_rect)
 
-        pygame.display.update()
-        pygame.time.wait(500)
-        return lvlsprites, player, balls, platform, self.backgrounds[lvl], 0, DISPLAY_WIDTH
+        background = self.backgrounds[lvl]
+        start_ticks=pygame.time.get_ticks()
+        pygame.event.get()
+        while True: # mainloop
+            ticks = pygame.time.get_ticks() - start_ticks
+            if ticks > 3000:
+                break
+
+            self.screen.blit(background, (0, 0))
+            lvlsprites.draw(self.screen)
+            text = self.font.render(f"Starting in: {round((3000-ticks)/1000,2)}", True, Game.RED)
+            self.screen.blit(text, (DISPLAY_WIDTH / 2 - 10, 75))
+            if ticks % 10 == 0:
+                pygame.display.update()
+
+        return lvlsprites, player, balls, platform, background, 0, DISPLAY_WIDTH
 
     def play_music(self, filepath):
         pygame.mixer.music.load(filepath)
@@ -134,7 +156,7 @@ class Game:
         laser = None
         clock = pygame.time.Clock()
         lives = 5
-        for lvl in range(1, 6):
+        for lvl in range(1, 7):
             if gameover:
                 break
 
