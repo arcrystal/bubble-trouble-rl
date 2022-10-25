@@ -2,7 +2,7 @@ import pygame
 import os
 
 DISPLAY_WIDTH = float(os.environ.get('DISPLAY_WIDTH'))
-DISPLAY_HEIGHT = DISPLAY_WIDTH / 1.8737
+DISPLAY_HEIGHT = DISPLAY_WIDTH * 0.5337 # Default 475
 
 class Floor(pygame.sprite.Sprite):
     """

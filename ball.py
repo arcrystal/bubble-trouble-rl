@@ -54,7 +54,9 @@ class Ball(pygame.sprite.Sprite):
         27.17 / 25 / 2,
         35.29 / 23 / 2,
         32.08 / 18 / 2,
-        17.48 / 10 / 2
+        17.48 / 10 / 2,
+        -1,
+        -1
     ]
     YSPEED = [YACC[i] * t for i, t in enumerate(bounce_time)]
 
@@ -103,8 +105,8 @@ class Ball(pygame.sprite.Sprite):
         Raises:
             None.
         """
-        if self.yspeed < 10 and self.yspeed > -10:
-            print("H", round(Ball.BOUNCE_HEIGHT[self.ballsize]), " :  ballY", round(self.y))
+        # if self.yspeed < 10 and self.yspeed > -10:
+        #     print("H", round(Ball.BOUNCE_HEIGHT[self.ballsize]), " :  ballY", round(self.y))
         # Update position
         self.x += self.xspeed * TIMESTEP
         # y = y0 + v0yt + ½at2
@@ -148,15 +150,3 @@ class Ball(pygame.sprite.Sprite):
                     0, self.ballsize-1, self.color),
                     Ball(self.x+10, self.y, Ball.XSPEED, newYspeed,
                     0, self.ballsize-1, self.color))
-
-
-bounce_height = [
-    DISPLAY_HEIGHT - DISPLAY_HEIGHT * 0.1695,
-    DISPLAY_HEIGHT - DISPLAY_HEIGHT * 0.3498, # this num is 166.1536 right now ball bounces 312
-    DISPLAY_HEIGHT - DISPLAY_HEIGHT * 0.4292, # this num is 203.868 but right now ball bounces 238
-    DISPLAY_HEIGHT - DISPLAY_HEIGHT * 0.515,
-    DISPLAY_HEIGHT - DISPLAY_HEIGHT * 0.5966,
-    DISPLAY_HEIGHT - DISPLAY_HEIGHT * 0.6803
-]
-print("Bounce height:", bounce_height)
-print("YACC:", YACC)

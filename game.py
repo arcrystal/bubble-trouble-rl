@@ -7,9 +7,9 @@ from floor import Floor
 from laser import Laser
 
 FPS = float(os.environ.get('FPS'))
-TIMESTEP = 1 / FPS
 DISPLAY_WIDTH = float(os.environ.get('DISPLAY_WIDTH'))
-DISPLAY_HEIGHT = DISPLAY_WIDTH / 1.8737
+TIMESTEP = 1 / FPS
+DISPLAY_HEIGHT = DISPLAY_WIDTH * 0.5337 # Default 475
 
 class Game:
     """
@@ -85,7 +85,6 @@ class Game:
                 player.SPRITES[key] = sprite.convert_alpha()
 
         platform.image = platform.image.convert_alpha()
-
         lvlsprites = pygame.sprite.Group()
         lvlsprites.add(player)
         lvlsprites.add(balls)
