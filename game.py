@@ -81,14 +81,32 @@ class Game(gym.Env):
                 Ball(DISPLAY_WIDTH // 3, DISPLAY_HEIGHT // 6, 0, 0, 0, 2, 'yellow'),
                 Ball(2*DISPLAY_WIDTH // 3 - 10, DISPLAY_HEIGHT // 6, 0, 0, 0, 3, 'green'))
         elif lvl == 6:
-            dw5 = DISPLAY_WIDTH / 10
+            b1h = DISPLAY_WIDTH / 10
             balls.add(
-                Ball(  DISPLAY_WIDTH // 7, 394, dw5, 0, 0, 0, 'purple'),
-                Ball(2*DISPLAY_WIDTH // 7, 394, dw5, 0, 0, 0, 'purple'),
-                Ball(3*DISPLAY_WIDTH // 7, 394, dw5, 0, 0, 0, 'purple'),
-                Ball(4*DISPLAY_WIDTH // 7, 394, dw5, 0, 0, 0, 'purple'),
-                Ball(5*DISPLAY_WIDTH // 7, 394, dw5, 0, 0, 0, 'purple'),
-                Ball(6*DISPLAY_WIDTH // 7, 394, dw5, 0, 0, 0, 'purple'))
+                Ball(  DISPLAY_WIDTH // 7, 394, b1h, 0, 0, 0, 'purple'),
+                Ball(2*DISPLAY_WIDTH // 7, 394, b1h, 0, 0, 0, 'purple'),
+                Ball(3*DISPLAY_WIDTH // 7, 394, b1h, 0, 0, 0, 'purple'),
+                Ball(4*DISPLAY_WIDTH // 7, 394, b1h, 0, 0, 0, 'purple'),
+                Ball(5*DISPLAY_WIDTH // 7, 394, b1h, 0, 0, 0, 'purple'),
+                Ball(6*DISPLAY_WIDTH // 7, 394, b1h, 0, 0, 0, 'purple'))
+        elif lvl == 7:
+            b1h = DISPLAY_WIDTH / 10
+            balls.add(
+                Ball(  DISPLAY_WIDTH // 7 - 20, 394, b1h, 0, 0, 0, 'yellow'),
+                Ball(  DISPLAY_WIDTH // 7,      394, b1h, 0, 0, 0, 'orange'),
+                Ball(  DISPLAY_WIDTH // 7 + 20, 394, b1h, 0, 0, 0, 'red'),
+                Ball(2*DISPLAY_WIDTH // 7 - 10, 394, b1h, 0, 0, 0, 'orange'),
+                Ball(2*DISPLAY_WIDTH // 7 + 10, 394, b1h, 0, 0, 0, 'red'),
+                Ball(3*DISPLAY_WIDTH // 7 - 20, 394, b1h, 0, 0, 0, 'yellow'),
+                Ball(3*DISPLAY_WIDTH // 7     , 394, b1h, 0, 0, 0, 'orange'),
+                Ball(3*DISPLAY_WIDTH // 7 + 20, 394, b1h, 0, 0, 0, 'red'),
+                Ball(4*DISPLAY_WIDTH // 7 - 10, 394, b1h, 0, 0, 0, 'orange'),
+                Ball(4*DISPLAY_WIDTH // 7 + 10, 394, b1h, 0, 0, 0, 'red'),
+                Ball(5*DISPLAY_WIDTH // 7 - 20, 394, b1h, 0, 0, 0, 'yellow'),
+                Ball(5*DISPLAY_WIDTH // 7     , 394, b1h, 0, 0, 0, 'orange'),
+                Ball(5*DISPLAY_WIDTH // 7 + 20, 394, b1h, 0, 0, 0, 'red'),
+                Ball(6*DISPLAY_WIDTH // 7 - 10, 394, b1h, 0, 0, 0, 'orange'),
+                Ball(6*DISPLAY_WIDTH // 7 + 10, 394, b1h, 0, 0, 0, 'red'))
 
         player = Player()
         platform = Floor()
@@ -171,7 +189,7 @@ class Game(gym.Env):
         laser = None
         clock = pygame.time.Clock()
         lives = 5
-        for lvl in range(1, 7):
+        for lvl in range(7, 8):
             if gameover:
                 break
 
