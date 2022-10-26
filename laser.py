@@ -1,19 +1,11 @@
 import pygame
-import time
-import os
-
-FPS = float(os.environ.get('FPS'))
-TIMESTEP = 1 / FPS
-DISPLAY_WIDTH = float(os.environ.get('DISPLAY_WIDTH'))
-DISPLAY_HEIGHT = DISPLAY_WIDTH * 0.5337 # Default 475
+from game import TIMESTEP, DISPLAY_HEIGHT
 
 class Laser():
     """
     A pygame object for the game.
     """
-    # STEP = DISPLAY_HEIGHT / FPS / TIMESTEPß
     def __init__(self, x):
-        self.time = time.time()
         self.x = x
         self.height = 0
         self.image = pygame.image.load("Sprites/laser.png")

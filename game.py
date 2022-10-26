@@ -1,17 +1,22 @@
-import pygame
 import os
 
+import pygame
 from player import Player
 from ball import Ball
 from floor import Floor
 from laser import Laser
+
+import gym
+from gym.spaces import Discrete, Dict, Box
+
+import numpy as np
 
 FPS = float(os.environ.get('FPS'))
 DISPLAY_WIDTH = float(os.environ.get('DISPLAY_WIDTH'))
 TIMESTEP = 1 / FPS
 DISPLAY_HEIGHT = DISPLAY_WIDTH * 0.5337 # Default 475
 
-class Game:
+class Game(gym.Env):
     """
     Game object for falling circles.
     """
@@ -25,6 +30,7 @@ class Game:
     LVL_TIME = [20000, 35000, 50000, 65000, 80000, 90000, 100000, 100000]
 
     def __init__(self):
+        # PYGAME
         pygame.init()
         pygame.mixer.init()
         # Initialize gameplay window
@@ -37,6 +43,17 @@ class Game:
         self.text = self.font.render(f"Score: {self.score}", True, Game.RED)
         self.screen.blit(self.text, (25, 25))
         self.backgrounds = [pygame.image.load("Backgrounds/bluepink.jpg").convert()] * len(Game.LVL_TIME)
+
+        # Open AI GYM ENV
+        self.observation_space = Dict({
+            "posX": Discrete(int(DISPLAY_WIDTH)),
+            "velX": Discrete(3),
+            "balls": Box(
+                low=np.array([0., 0.]),
+                high=np.array([int(DISPLAY_WIDTH), int(DISPLAY_HEIGHT)]),
+                dtype=np.uint8)
+        })
+        self.action_space = gym.spaces.Discrete(3)
 
     def init_level(self, lvl, lives=None, newlvl=True):
         """

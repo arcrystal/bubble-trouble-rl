@@ -1,15 +1,29 @@
-
 import gym
+from gym.spaces import Discrete, Dict, Box
+import numpy as np
+import os
+
+DISPLAY_WIDTH = float(os.environ.get('DISPLAY_WIDTH'))
+DISPLAY_HEIGHT = DISPLAY_WIDTH * 0.5337 # Default 475
 
 class Environment(gym.Env):
     def __init__(self, env_config={}):
-        self.observation_space = None # TODO: <gym.space>
-        self.action_space = None # TODO: <gym.space> Discrete(3) left, right, shoot
+        self.observation_space = Dict({
+            "posX": Discrete(int(DISPLAY_WIDTH)),
+            "velX": Discrete(3),
+            "balls": Box(
+                low=np.array([0., 0.]),
+                high=np.array([int(DISPLAY_WIDTH), int(DISPLAY_HEIGHT)]),
+                dtype=np.uint8)
+        })
+        self.action_space = gym.spaces.Discrete(3)
 
     def reset(self):
-        # reset the environment to initial state
-        return None # TODO: observation
+        pass
 
     def step(self, action):
-        # perform one step in the game logic
-        return None # TODO: observation, reward, done, info
+        pass
+
+env = Environment()
+b = env.observation_space.sample()
+print(b)

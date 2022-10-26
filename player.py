@@ -1,11 +1,6 @@
-
 import pygame
-import os
+from game import TIMESTEP, DISPLAY_WIDTH, DISPLAY_HEIGHT
 
-FPS = float(os.environ.get('FPS'))
-DISPLAY_WIDTH = float(os.environ.get('DISPLAY_WIDTH'))
-TIMESTEP = 1 / FPS
-DISPLAY_HEIGHT = DISPLAY_WIDTH * 0.5337 # Default 475
 
 class Player(pygame.sprite.Sprite):
     """

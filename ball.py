@@ -1,11 +1,6 @@
 import pygame
-import os
-from numpy import sqrt
+from game import TIMESTEP, DISPLAY_WIDTH, DISPLAY_HEIGHT
 
-FPS = float(os.environ.get('FPS'))
-TIMESTEP = 1 / FPS
-DISPLAY_WIDTH = float(os.environ.get('DISPLAY_WIDTH'))
-DISPLAY_HEIGHT = DISPLAY_WIDTH * 0.5337 # Default 475
 YACC = [
     # DISPLAY HEIGHT --> ballY == 229
     DISPLAY_HEIGHT, # DONE
