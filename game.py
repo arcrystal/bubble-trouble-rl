@@ -1,4 +1,8 @@
 import os
+FPS = float(os.environ.get('FPS'))
+DISPLAY_WIDTH = float(os.environ.get('DISPLAY_WIDTH'))
+TIMESTEP = 1 / FPS
+DISPLAY_HEIGHT = DISPLAY_WIDTH * 0.5337 # Default 475
 
 import pygame
 from player import Player
@@ -10,11 +14,6 @@ import gym
 from gym.spaces import Discrete, Dict, Box
 
 import numpy as np
-
-FPS = float(os.environ.get('FPS'))
-DISPLAY_WIDTH = float(os.environ.get('DISPLAY_WIDTH'))
-TIMESTEP = 1 / FPS
-DISPLAY_HEIGHT = DISPLAY_WIDTH * 0.5337 # Default 475
 
 class Game(gym.Env):
     """
@@ -125,11 +124,11 @@ class Game(gym.Env):
             if ticks > 3000:
                 break
 
-            self.screen.blit(background, (0, 0))
-            lvlsprites.draw(self.screen)
-            text = self.font.render(f"Starting in: {round((3000-ticks)/1000,2)}", True, Game.RED)
-            self.screen.blit(text, (DISPLAY_WIDTH / 2 - 10, 75))
-            if ticks % 10 == 0:
+            if ticks % 100 == 0:
+                self.screen.blit(background, (0, 0))
+                lvlsprites.draw(self.screen)
+                text = self.font.render(f"Starting in: {round((3000-ticks)/1000,1)}", True, Game.RED)
+                self.screen.blit(text, (DISPLAY_WIDTH / 2 - 10, 75))
                 pygame.display.update()
 
         return lvlsprites, player, balls, platform, background, 0, DISPLAY_WIDTH
