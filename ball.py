@@ -35,17 +35,16 @@ class Ball(pygame.sprite.Sprite):
         'pink':pygame.image.load("Sprites/ball_pink.png")}
 
     # Ball bounce height (floor to bottom of ball)
-    
     BOUNCE_HEIGHT = [
         DISPLAY_HEIGHT - DISPLAY_HEIGHT * 0.1695,
-        DISPLAY_HEIGHT - DISPLAY_HEIGHT * 0.3498, # this num is 166.1536 right now ball bounces 312
-        DISPLAY_HEIGHT - DISPLAY_HEIGHT * 0.4292, # this num is 203.868 but right now ball bounces 238
+        DISPLAY_HEIGHT - DISPLAY_HEIGHT * 0.3498,
+        DISPLAY_HEIGHT - DISPLAY_HEIGHT * 0.4292,
         DISPLAY_HEIGHT - DISPLAY_HEIGHT * 0.515,
         DISPLAY_HEIGHT - DISPLAY_HEIGHT * 0.5966,
         DISPLAY_HEIGHT - DISPLAY_HEIGHT * 0.6803
     ]
     bounce_time = [
-        # seconds / bounce / 2
+        # seconds / bounce_height / 2
         27.17 / 25 / 2,
         35.29 / 23 / 2,
         32.08 / 18 / 2,
@@ -78,6 +77,9 @@ class Ball(pygame.sprite.Sprite):
             (Ball.sizes[ballsize], Ball.sizes[ballsize]))
         self.rect = self.image.get_rect()
         self.rect.center = (self.x, self.y)
+
+    def getSize(self):
+        return self.ballsize
 
     def bounceX(self):
         if self.x > DISPLAY_WIDTH / 2:
@@ -136,7 +138,6 @@ class Ball(pygame.sprite.Sprite):
         Raises:
             None.
         """
-        print("Laser Pop!")
         if self.ballsize == 0:
             return
         else:

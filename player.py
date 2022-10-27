@@ -40,7 +40,7 @@ class Player(pygame.sprite.Sprite):
         self.x = x
     
     def stop(self):
-        print("Stop moving.")
+        # print("Stop moving.")
         self.xspeed = 0
         self.image = Player.SPRITES['still']
         self.rect = self.image.get_rect()
@@ -48,7 +48,7 @@ class Player(pygame.sprite.Sprite):
         self.rect.y = self.y
 
     def left(self):
-        print("Left.")
+        # print("Left.")
         self.xspeed = -Player.SPEED
         self.image = Player.SPRITES['left']
         self.rect = self.image.get_rect()
@@ -56,7 +56,7 @@ class Player(pygame.sprite.Sprite):
         self.rect.y = self.y
 
     def right(self):
-        print("Right.")
+        # print("Right.")
         self.xspeed = Player.SPEED
         self.image = Player.SPRITES['right']
         self.rect = self.image.get_rect()

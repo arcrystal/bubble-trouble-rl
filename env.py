@@ -16,7 +16,8 @@ class Environment(gym.Env):
                 high=np.array([int(DISPLAY_WIDTH), int(DISPLAY_HEIGHT)]),
                 dtype=np.uint8)
         })
-        self.action_space = gym.spaces.Discrete(3)
+        # Shoot, left, right, do nothing
+        self.action_space = gym.spaces.Discrete(4)
 
     def reset(self):
         pass
