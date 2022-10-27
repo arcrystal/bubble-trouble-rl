@@ -9,7 +9,18 @@ from player import Player
 from floor import Floor
 from laser import Laser
 from levels import BALLS
-SAMPLE_TO_ACTION = {
+#from utils.Utils import getCirclePixels
+from itertools import product
+def getCirclePixels(centerx, centery, radius):
+        for x, y in product(range(int(radius) + 1), repeat=2):
+            if x**2 + y**2 <= radius**2:
+                yield from set((
+                    (centerx + x, centery + y),
+                    (centerx + x, centery-y),
+                    (centerx-x, centery+y),
+                    (centerx-x, centery-y),))
+
+VAL_TO_ACTION = {
     0: pygame.K_LEFT,
     1: pygame.K_RIGHT,
     2: pygame.K_UP,
@@ -18,6 +29,7 @@ SAMPLE_TO_ACTION = {
 import gym
 from gym.spaces import Discrete, Dict, Box
 
+import numpy as np
 from numpy import uint8 as np_uint8
 from numpy import array as np_array
 
@@ -43,8 +55,7 @@ class Game(gym.Env):
         8: 100000}
 
     def __init__(self):
-        
-        # Open AI GYM ENV
+        # https://www.gymlibrary.dev/api/core/#gym.Env.observation_space
         self.observation_space = Dict({
             "posX": Discrete(int(DISPLAY_WIDTH)),
             "velX": Discrete(3),
@@ -53,6 +64,7 @@ class Game(gym.Env):
                 high=np_array([int(DISPLAY_WIDTH), int(DISPLAY_HEIGHT)]),
                 dtype=np_uint8)
         })
+        # https://www.gymlibrary.dev/api/core/#gym.Env.action_space
         self.action_space = gym.spaces.Discrete(4)
 
     def init_render(self):
@@ -68,10 +80,22 @@ class Game(gym.Env):
         self.font = pygame.font.SysFont('Calibri', 25, True, True)
         self.text = self.font.render(f"Score: {self.score}", True, Game.RED)
         self.screen.blit(self.text, (25, 25))
-        self.backgrounds = [pygame.image.load("Backgrounds/bluepink.jpg").convert()] * len(Game.LVL_TIME)
+        self.backgrounds = [pygame.image.load("Backgrounds/bluepink.jpg").convert()]
+        self.backgrounds *= len(Game.LVL_TIME)
         self.clock = pygame.time.Clock()
 
-    # gym.Env.reset
+    def get_observation(self):
+        obs = np.zeros((int(DISPLAY_HEIGHT), int(DISPLAY_WIDTH)))
+        for ball in self.balls:
+            bp = ball.pixels
+            bp[bp != 0] = ball.ballsize
+            for row in bp:
+                print(" ".join(list(row.astype(str))))
+            #print(bp)
+        
+        # exit()
+
+    # https://www.gymlibrary.dev/api/core/#gym.Env.reset
     def reset(self, lvl, user=False, countdown=False):
         """
         Returns:
@@ -162,6 +186,7 @@ class Game(gym.Env):
                 if event.key == pygame.K_RIGHT and self.player.xspeed > 0:
                     self.player.stop()
 
+    # https://www.gymlibrary.dev/api/core/#gym.Env.step
     def step(self, lvl, action=None, user=False):
         # Apply action
         if not user:
@@ -225,6 +250,7 @@ class Game(gym.Env):
         observation, info = None, {}
         return observation, reward, nextlevel, gameover, info
 
+    # https://www.gymlibrary.dev/api/core/#gym.Env.render
     def render(self):
         # Draw and update screen
         self.screen.blit(self.background, (0, 0))
@@ -232,6 +258,7 @@ class Game(gym.Env):
         self.lvlsprites.draw(self.screen)
         if self.shooting:
             self.screen.blit(self.laser.curr, self.laser.rect)
+
         pygame.display.update()
 
     def draw_timer(self, timeleft):
@@ -251,48 +278,81 @@ class Game(gym.Env):
 
     def policy(self, observation):
         """
-        SAMPLE_TO_ACTION = {
+        RL Agent's policy for mapping an observation to an action.
+
+        Args:
+            observation: the current state of the environment.
+        Returns:
+            action (int): pygame global corresponding an action the agent will take.
+        Raises:
+            None.
+
+        Notes:
+        ----------------------
+        VAL_TO_ACTION = {
             0: pygame.K_LEFT,
             1: pygame.K_RIGHT,
             2: pygame.K_UP,
             3: None
         }
         """
-        action = SAMPLE_TO_ACTION[self.action_space.sample()]
+        action = VAL_TO_ACTION[self.action_space.sample()]
         while self.shooting and action == 2:
-            action = SAMPLE_TO_ACTION[self.action_space.sample()]
+            action = VAL_TO_ACTION[self.action_space.sample()]
         
         return action
 
-    def play(self, user=False):
+    def play(self, user=False, num_trials=1):
+        """
+        Highest level class method for playing or simulating the pygame.
+
+        Args:
+            user (bool): True if user is playing, False if simulating with RL agent.
+            num_trials: How many trials the game will run.
+        Returns:
+            None.
+        Raises:
+            None.
+        """
+        # Set initial game vars
         gameover = False
         nextlevel = False
-        epochs = 1
         self.init_render()
-        for trial in range(epochs):
+        # Play the game num_trials times
+        for trial in range(num_trials):
             gameover = False
             self.score = 0
-            for lvl in range(1, 8):
+            # Loop through levels
+            for lvl in range(5, 8):
                 if gameover:
                     break
-                    
+                
+                # Reset the environment
                 observation, _ = self.reset(lvl=lvl, user=user)
+                # Start the level
                 while not (nextlevel or gameover):
-                    action = self.policy(observation)
                     if user:
+                        # Handle user inputs
                         action = self.handle_keyevents()
                     else:
+                        # Exit the game when closing the window.
                         self.exit_if_quitting()
-
-                                            
+                        # Get an action
+                        action = self.policy(observation)
+                    
+                    # Step the environment forward
                     observation, reward, nextlevel, gameover, _ = self.step(lvl, action, user)
                     self.render()
+                    self.get_observation()
 
                 if nextlevel:
+                    # Stop lvl from iterating > once
                     nextlevel = False
+                    # Update base reward (game score)
                     self.score += Game.LVL_TIME[lvl] / 200
                     self.score += round(self.timeleft / 10)
             
+            # Print statistics and reset the environment
             print("Final score:", self.score)
             print("Trial", trial, "reward:", reward)
             self.reset(lvl=1, user=user)

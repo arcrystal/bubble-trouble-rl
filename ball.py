@@ -17,7 +17,6 @@ class Ball(pygame.sprite.Sprite):
     """
     A pygame object for the game.
     """
-    # TODO: fix this
     # 9.5 Seconds from one side to the other
     XSPEED = DISPLAY_WIDTH / 9.5
     # Ball size
@@ -78,6 +77,9 @@ class Ball(pygame.sprite.Sprite):
         self.size = Ball.sizes[ballsize]
         self.color = color
         self.image = pygame.transform.scale(Ball.SPRITES[color], (self.size, self.size))
+        # Create a new 2D array that directly references the ball pixels.
+        # TODO: make sure this works and ball_pixels updates for every step
+        self.pixels = pygame.surfarray.array2d(self.image)
         self.rect = self.image.get_rect()
         self.rect.center = (self.x, self.y)
 
@@ -129,6 +131,7 @@ class Ball(pygame.sprite.Sprite):
         # Update rect dimensions
         self.rect.x = self.x
         self.rect.y = self.y
+        self.pixels = pygame.surfarray.array2d(self.image) # BUG: delete if issue is not fixed
 
     def pop(self):
         """
