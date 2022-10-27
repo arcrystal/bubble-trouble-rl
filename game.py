@@ -67,8 +67,6 @@ class Game(gym.Env):
             timeleft (float): keeps track of time with respect to display size
         """
         # Sprite groups for all sprites and balls
-        balls = pygame.sprite.Group()
-        lvlsprites = pygame.sprite.Group()
 
         # Creates sprites
         ball_sprites = LEVELS[lvl]
@@ -76,7 +74,7 @@ class Game(gym.Env):
         platform = Floor()
 
         # Convert sprites to the same pixel format used for final display
-        for sprites in balls:
+        for sprites in ball_sprites:
             for color, sprite in sprites.SPRITES.items():
                 sprites.SPRITES[color] = sprite.convert_alpha()
 
@@ -85,7 +83,10 @@ class Game(gym.Env):
 
         platform.image = platform.image.convert_alpha()
 
-        # Add sprites to groups
+        # Create sprite groups and add sprites
+        balls = pygame.sprite.Group()
+        lvlsprites = pygame.sprite.Group()
+        balls.add(ball_sprites)
         lvlsprites.add(player)
         lvlsprites.add(balls)
         lvlsprites.add(platform)
@@ -98,11 +99,11 @@ class Game(gym.Env):
         lives_font_rect = lives_font.get_rect()
         lives_font_rect.center = DISPLAY_WIDTH / 2, DISPLAY_HEIGHT / 10 + 50
         self.screen.blit(lives_font, lives_font_rect)
-
         background = self.backgrounds[lvl]
         start_ticks=pygame.time.get_ticks()
         pygame.event.get()
-        while True: # mainloop
+        # Draw start countdown
+        while True:
             ticks = pygame.time.get_ticks() - start_ticks
             if ticks > 3000:
                 break
@@ -224,7 +225,7 @@ class Game(gym.Env):
                 lvlsprites.update()
                 lvlsprites.draw(self.screen)
                 pygame.display.update()
-                # means that for every (1 / FPS) seconds, FPS frames should pass.
+
                 clock.tick(FPS)
                 timer += clock.get_time()
                 timeleft = DISPLAY_WIDTH - DISPLAY_WIDTH / Game.LVL_TIME[lvl-1] * timer
