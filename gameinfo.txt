@@ -1,0 +1,9 @@
+Ball speed: 9.5 seconds from left wall to right wall
+Ball size:
+    Value # for default_screen_size=890px
+    DISPLAY_WIDTH / 50.7273, # 55 
+    DISPLAY_WIDTH / 29.3684, # 95=b2
+    DISPLAY_WIDTH / 15.7627, # 177=b3
+    DISPLAY_WIDTH / 10.856, # 257=b4
+    DISPLAY_WIDTH / 8.2301, # 339=b5
+    DISPLAY_WIDTH / 6.7718] # 412=b6

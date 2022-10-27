@@ -267,7 +267,7 @@ class Game(gym.Env):
     def play(self, user=False):
         gameover = False
         nextlevel = False
-        epochs = 2
+        epochs = 1
         self.init_render()
         for trial in range(epochs):
             gameover = False

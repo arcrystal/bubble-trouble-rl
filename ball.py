@@ -1,5 +1,7 @@
 import pygame
-from game import TIMESTEP, DISPLAY_WIDTH, DISPLAY_HEIGHT
+from game import TIMESTEP, DISPLAY_WIDTH, DISPLAY_HEIGHT, FPS
+
+from numpy import sqrt
 
 YACC = [
     # DISPLAY HEIGHT --> ballY == 229
@@ -15,7 +17,9 @@ class Ball(pygame.sprite.Sprite):
     """
     A pygame object for the game.
     """
-    XSPEED = DISPLAY_WIDTH / 5
+    # TODO: fix this
+    # 9.5 Seconds from one side to the other
+    XSPEED = DISPLAY_WIDTH / 9.5
     # Ball size
     sizes = [
         DISPLAY_WIDTH / 50.7273, # 55=b1
@@ -71,10 +75,9 @@ class Ball(pygame.sprite.Sprite):
         self.yspeed = yspeed
         self.xacceleration = xacceleration
         self.ballsize = ballsize
+        self.size = Ball.sizes[ballsize]
         self.color = color
-        self.image = pygame.transform.scale(
-            Ball.SPRITES[color],
-            (Ball.sizes[ballsize], Ball.sizes[ballsize]))
+        self.image = pygame.transform.scale(Ball.SPRITES[color], (self.size, self.size))
         self.rect = self.image.get_rect()
         self.rect.center = (self.x, self.y)
 
@@ -141,8 +144,11 @@ class Ball(pygame.sprite.Sprite):
         if self.ballsize == 0:
             return
         else:
-            newYspeed = -25
-            return (Ball(self.x-10, self.y, -Ball.XSPEED, newYspeed,
+            # (0 - self.yspeed) / -YACC[self.ballsize]
+            time_from_top = abs(self.yspeed / YACC[self.ballsize])
+            # the closer the ball is to the vertex, the higher it pops
+            newYspeed = max(-300, -30 / (time_from_top))
+            return (Ball(self.x-10, self.y, 'left', newYspeed,
                     0, self.ballsize-1, self.color),
-                    Ball(self.x+10, self.y, Ball.XSPEED, newYspeed,
+                    Ball(self.x+10, self.y, 'right', newYspeed,
                     0, self.ballsize-1, self.color))

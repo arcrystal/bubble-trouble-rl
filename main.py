@@ -4,6 +4,7 @@ import argparse
 
 
 def main():
+    print("------------------------------")
     # Initialize parser
     parser = argparse.ArgumentParser()
     parser.add_argument(
