@@ -6,7 +6,6 @@ DISPLAY_HEIGHT = DISPLAY_WIDTH * 0.5337 # Default 475
 
 import pygame
 from player import Player
-from ball import Ball
 from floor import Floor
 from laser import Laser
 from levels import BALLS
@@ -14,13 +13,13 @@ SAMPLE_TO_ACTION = {
     0: pygame.K_LEFT,
     1: pygame.K_RIGHT,
     2: pygame.K_UP,
-    3: None
-}
+    3: None}
 
 import gym
 from gym.spaces import Discrete, Dict, Box
 
-import numpy as np
+from numpy import uint8 as np_uint8
+from numpy import array as np_array
 
 class Game(gym.Env):
     """
@@ -50,9 +49,9 @@ class Game(gym.Env):
             "posX": Discrete(int(DISPLAY_WIDTH)),
             "velX": Discrete(3),
             "balls": Box(
-                low=np.array([0., 0.]),
-                high=np.array([int(DISPLAY_WIDTH), int(DISPLAY_HEIGHT)]),
-                dtype=np.uint8)
+                low=np_array([0., 0.]),
+                high=np_array([int(DISPLAY_WIDTH), int(DISPLAY_HEIGHT)]),
+                dtype=np_uint8)
         })
         self.action_space = gym.spaces.Discrete(4)
 
