@@ -88,6 +88,7 @@ class Game(gym.Env):
         """
         # Reset gameplay variables
         self.timeleft = DISPLAY_WIDTH
+        self.background = self.backgrounds[lvl]
         self.timer = 0
 
         # Creates sprites and convert pixel format to same as final display
@@ -116,7 +117,6 @@ class Game(gym.Env):
             lvl_font = self.font.render(f'Level {lvl}', True, Game.GREEN, Game.BLUE)
             lvl_font_rect = lvl_font.get_rect()
             lvl_font_rect.center = DISPLAY_WIDTH / 2, DISPLAY_HEIGHT / 10
-            self.background = self.backgrounds[lvl]
             start_ticks=pygame.time.get_ticks()
             pygame.event.get()
             # Draw start countdown:
@@ -135,6 +135,11 @@ class Game(gym.Env):
 
         observation, info = None, {} # TODO: give these information
         return observation, info
+
+    def exit_if_quitting(self):
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                exit()
 
     def handle_keyevents(self):
         for event in pygame.event.get():
@@ -246,27 +251,42 @@ class Game(gym.Env):
         return False
 
     def policy(self, observation):
-        return SAMPLE_TO_ACTION[self.action_space.sample()]
+        """
+        SAMPLE_TO_ACTION = {
+            0: pygame.K_LEFT,
+            1: pygame.K_RIGHT,
+            2: pygame.K_UP,
+            3: None
+        }
+        """
+        action = SAMPLE_TO_ACTION[self.action_space.sample()]
+        while self.shooting and action == 2:
+            action = SAMPLE_TO_ACTION[self.action_space.sample()]
+        
+        return action
 
     def play(self, user=False):
         gameover = False
         nextlevel = False
-        run = True
+        epochs = 2
         self.init_render()
-        while run:
+        for trial in range(epochs):
             gameover = False
             self.score = 0
             for lvl in range(1, 8):
                 if gameover:
                     break
                     
-                observation, info = self.reset(lvl=lvl, user=user)
+                observation, _ = self.reset(lvl=lvl, user=user)
                 while not (nextlevel or gameover):
                     action = self.policy(observation)
                     if user:
                         action = self.handle_keyevents()
+                    else:
+                        self.exit_if_quitting()
+
                                             
-                    observation, reward, nextlevel, gameover, info = self.step(lvl, action, user)
+                    observation, reward, nextlevel, gameover, _ = self.step(lvl, action, user)
                     self.render()
 
                 if nextlevel:
@@ -275,6 +295,7 @@ class Game(gym.Env):
                     self.score += round(self.timeleft / 10)
             
             print("Final score:", self.score)
+            print("Trial", trial, "reward:", reward)
             self.reset(lvl=1, user=user)
                         
         pygame.quit()
