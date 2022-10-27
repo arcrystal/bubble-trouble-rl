@@ -55,19 +55,20 @@ class Game(gym.Env):
         })
         self.action_space = gym.spaces.Discrete(3)
 
-    def init_level(self, lvl, lives=None, newlvl=True):
+    # gym.Env.reset
+    def reset(self, lvl, lives=None, newlvl=True):
         """
         Returns:
-            lvlsprites (pygame.sprite.Group): contains all sprites
-            player: (pygame.sprite.Sprite): player sprite
-            balls (pygame.sprite.Group): contains all ball sprites
-            platform: (pygame.sprite.Sprite): platform sprite
-            background: (pygame.Surface): background from game screen
-            timer (float): keeps track of time elapsed
-            timeleft (float): keeps track of time with respect to display size
+            info (dict):
+                lvlsprites (pygame.sprite.Group): contains all sprites
+                player: (pygame.sprite.Sprite): player sprite
+                balls (pygame.sprite.Group): contains all ball sprites
+                platform: (pygame.sprite.Sprite): platform sprite
+                background: (pygame.Surface): background from game screen
+                timer (float): keeps track of time elapsed
+                timeleft (float): keeps track of time with respect to display size
+            observation (object)
         """
-        # Sprite groups for all sprites and balls
-
         # Creates sprites
         ball_sprites = LEVELS[lvl]
         player = Player()
