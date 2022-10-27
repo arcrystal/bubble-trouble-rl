@@ -9,6 +9,7 @@ from player import Player
 from ball import Ball
 from floor import Floor
 from laser import Laser
+from levels import LEVELS
 
 import gym
 from gym.spaces import Discrete, Dict, Box
@@ -65,52 +66,16 @@ class Game(gym.Env):
             timer (float): keeps track of time elapsed
             timeleft (float): keeps track of time with respect to display size
         """
+        # Sprite groups for all sprites and balls
         balls = pygame.sprite.Group()
-        if lvl == 1:
-            balls.add(Ball(DISPLAY_WIDTH // 4, DISPLAY_HEIGHT // 6, 0, 0, 0, 1, 'yellow'))
-        elif lvl == 2:
-            balls.add(Ball(DISPLAY_WIDTH // 4, DISPLAY_HEIGHT // 6, 0, 0, 0, 2, 'green'))
-        elif lvl == 3:
-            balls.add(Ball(DISPLAY_WIDTH // 4, DISPLAY_HEIGHT // 6, 0, 0, 0, 3, 'red'))
-        elif lvl == 4:
-            balls.add(
-                Ball(DISPLAY_WIDTH // 4, DISPLAY_HEIGHT // 6, 'left', 0, 0, 2, 'orange'),
-                Ball(3 * DISPLAY_WIDTH // 4, DISPLAY_HEIGHT // 6, 'right', 0, 0, 2, 'orange'))
-        elif lvl == 5:
-            balls.add(
-                Ball(DISPLAY_WIDTH // 3, DISPLAY_HEIGHT // 6, 0, 0, 0, 2, 'yellow'),
-                Ball(2*DISPLAY_WIDTH // 3 - 10, DISPLAY_HEIGHT // 6, 0, 0, 0, 3, 'green'))
-        elif lvl == 6:
-            b1h = DISPLAY_WIDTH / 10
-            balls.add(
-                Ball(  DISPLAY_WIDTH // 7, 394, b1h, 0, 0, 0, 'purple'),
-                Ball(2*DISPLAY_WIDTH // 7, 394, b1h, 0, 0, 0, 'purple'),
-                Ball(3*DISPLAY_WIDTH // 7, 394, b1h, 0, 0, 0, 'purple'),
-                Ball(4*DISPLAY_WIDTH // 7, 394, b1h, 0, 0, 0, 'purple'),
-                Ball(5*DISPLAY_WIDTH // 7, 394, b1h, 0, 0, 0, 'purple'),
-                Ball(6*DISPLAY_WIDTH // 7, 394, b1h, 0, 0, 0, 'purple'))
-        elif lvl == 7:
-            b1h = DISPLAY_WIDTH / 10
-            balls.add(
-                Ball(  DISPLAY_WIDTH // 7 - 20, 394, b1h, 0, 0, 0, 'yellow'),
-                Ball(  DISPLAY_WIDTH // 7,      394, b1h, 0, 0, 0, 'orange'),
-                Ball(  DISPLAY_WIDTH // 7 + 20, 394, b1h, 0, 0, 0, 'red'),
-                Ball(2*DISPLAY_WIDTH // 7 - 10, 394, b1h, 0, 0, 0, 'orange'),
-                Ball(2*DISPLAY_WIDTH // 7 + 10, 394, b1h, 0, 0, 0, 'red'),
-                Ball(3*DISPLAY_WIDTH // 7 - 20, 394, b1h, 0, 0, 0, 'yellow'),
-                Ball(3*DISPLAY_WIDTH // 7     , 394, b1h, 0, 0, 0, 'orange'),
-                Ball(3*DISPLAY_WIDTH // 7 + 20, 394, b1h, 0, 0, 0, 'red'),
-                Ball(4*DISPLAY_WIDTH // 7 - 10, 394, b1h, 0, 0, 0, 'orange'),
-                Ball(4*DISPLAY_WIDTH // 7 + 10, 394, b1h, 0, 0, 0, 'red'),
-                Ball(5*DISPLAY_WIDTH // 7 - 20, 394, b1h, 0, 0, 0, 'yellow'),
-                Ball(5*DISPLAY_WIDTH // 7     , 394, b1h, 0, 0, 0, 'orange'),
-                Ball(5*DISPLAY_WIDTH // 7 + 20, 394, b1h, 0, 0, 0, 'red'),
-                Ball(6*DISPLAY_WIDTH // 7 - 10, 394, b1h, 0, 0, 0, 'orange'),
-                Ball(6*DISPLAY_WIDTH // 7 + 10, 394, b1h, 0, 0, 0, 'red'))
+        lvlsprites = pygame.sprite.Group()
 
+        # Creates sprites
+        ball_sprites = LEVELS[lvl]
         player = Player()
         platform = Floor()
 
+        # Convert sprites to the same pixel format used for final display
         for sprites in balls:
             for color, sprite in sprites.SPRITES.items():
                 sprites.SPRITES[color] = sprite.convert_alpha()
@@ -119,20 +84,20 @@ class Game(gym.Env):
                 player.SPRITES[key] = sprite.convert_alpha()
 
         platform.image = platform.image.convert_alpha()
-        lvlsprites = pygame.sprite.Group()
+
+        # Add sprites to groups
         lvlsprites.add(player)
         lvlsprites.add(balls)
         lvlsprites.add(platform)
 
-        if newlvl:
-            lvl_font = self.font.render(f'Level {lvl}', True, Game.GREEN, Game.BLUE)
-            lvl_font_rect = lvl_font.get_rect()
-            lvl_font_rect.center = DISPLAY_WIDTH / 2, DISPLAY_HEIGHT / 10
-        else:
-            lives_font = self.font.render(f'Lives: {lives}', True, Game.RED)
-            lives_font_rect = lives_font.get_rect()
-            lives_font_rect.center = DISPLAY_WIDTH / 2, DISPLAY_HEIGHT / 10
-            self.screen.blit(lives_font, lives_font_rect)
+        # Render start screen
+        lvl_font = self.font.render(f'Level {lvl}', True, Game.GREEN, Game.BLUE)
+        lvl_font_rect = lvl_font.get_rect()
+        lvl_font_rect.center = DISPLAY_WIDTH / 2, DISPLAY_HEIGHT / 10
+        lives_font = self.font.render(f'Lives: {lives}', True, Game.RED)
+        lives_font_rect = lives_font.get_rect()
+        lives_font_rect.center = DISPLAY_WIDTH / 2, DISPLAY_HEIGHT / 10 + 50
+        self.screen.blit(lives_font, lives_font_rect)
 
         background = self.backgrounds[lvl]
         start_ticks=pygame.time.get_ticks()
