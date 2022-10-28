@@ -1,12 +1,12 @@
 import os
 FPS = float(os.environ.get('FPS'))
-DISPLAY_WIDTH = float(os.environ.get('DISPLAY_WIDTH'))
+DISPLAY_WIDTH = int(os.environ.get('DISPLAY_WIDTH')) # Default 890
 TIMESTEP = 1 / FPS
-DISPLAY_HEIGHT = DISPLAY_WIDTH * 0.5337 # Default 475
+DISPLAY_HEIGHT =int(DISPLAY_WIDTH * 0.5337) # Default 475
 
 import pygame
 from player import Player
-from floor import Floor
+from barrier import Barrier
 from laser import Laser
 from levels import BALLS
 #from utils.Utils import getCirclePixels
@@ -96,33 +96,22 @@ class Game(gym.Env):
                 - int: laser is shooting (at pos x)
                 - np.array: array of screen's balls with 0 for empty / size of ball
         Raises:
-            ValueError: when the ball is at the edge of the screen, excepts value error
-            because ball array is not entirely on the screen
+            None.
         """
-        obs = np.zeros((int(DISPLAY_HEIGHT), int(DISPLAY_WIDTH)), dtype=np.int32)
+        ball_obs = np.zeros((int(DISPLAY_HEIGHT), int(DISPLAY_WIDTH)), dtype=np.int32)
         for ball in self.balls:
             radius = ball.pixels.shape[0]
-            x = int(ball.x)
-            y = int(ball.y)
+            x = int(max(0, min(ball.x, DISPLAY_WIDTH - radius)))
+            y = int(max(0, min(ball.y, DISPLAY_HEIGHT - radius)))
             # TODO: make this more efficient - shouldn't have to update ball.pixels
             # (rn they are pygame pixel values but they should already be ballsize)
-            try:
-                ball.pixels[np.where(ball.pixels != 0)] = ball.ballsize
-                obs[y:y+radius, x:x+radius] = ball.pixels
-            except ValueError:
-                continue # TODO: actually fix this exception
+            ball.pixels[np.where(ball.pixels != 0)] = ball.ballsize
+            ball_obs[y:y+radius, x:x+radius] = ball.pixels
 
-        # write observation as 2D "string" to file
-        # with open("temp.txt", 'w') as f:
-        #     for row in obs:
-        #         f.write(" ".join(list(row.astype(str))))
-        #         f.write("\n")
-            
-        #     f.close()
+        laser_obs = self.laser.getX() if self.shooting else -1
+        player_obs = self.player.getX()
 
-        # exit()
-
-        return obs
+        return (player_obs, laser_obs, ball_obs)
 
     # https://www.gymlibrary.dev/api/core/#gym.Env.reset
     def reset(self, lvl, user=False, countdown=False):
@@ -153,7 +142,7 @@ class Game(gym.Env):
         for key, sprite in self.player.SPRITES.items():
                 self.player.SPRITES[key] = sprite.convert_alpha()
 
-        self.platform = Floor()
+        self.platform = Barrier()
         self.platform.image = self.platform.image.convert_alpha()
 
         # Create sprite groups and add sprites
