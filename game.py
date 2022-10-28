@@ -85,15 +85,44 @@ class Game(gym.Env):
         self.clock = pygame.time.Clock()
 
     def get_observation(self):
-        obs = np.zeros((int(DISPLAY_HEIGHT), int(DISPLAY_WIDTH)))
+        """
+        Users gameplay vars to get an observation of the environment.
+
+        Args:
+            None.
+        Returns:
+            observation tuple(int, int, np.array):
+                - int: x position of player
+                - int: laser is shooting (at pos x)
+                - np.array: array of screen's balls with 0 for empty / size of ball
+        Raises:
+            ValueError: when the ball is at the edge of the screen, excepts value error
+            because ball array is not entirely on the screen
+        """
+        obs = np.zeros((int(DISPLAY_HEIGHT), int(DISPLAY_WIDTH)), dtype=np.int32)
         for ball in self.balls:
-            bp = ball.pixels
-            bp[bp != 0] = ball.ballsize
-            for row in bp:
-                print(" ".join(list(row.astype(str))))
-            #print(bp)
-        
+            radius = ball.pixels.shape[0]
+            x = int(ball.x)
+            y = int(ball.y)
+            # TODO: make this more efficient - shouldn't have to update ball.pixels
+            # (rn they are pygame pixel values but they should already be ballsize)
+            try:
+                ball.pixels[np.where(ball.pixels != 0)] = ball.ballsize
+                obs[y:y+radius, x:x+radius] = ball.pixels
+            except ValueError:
+                continue # TODO: actually fix this exception
+
+        # write observation as 2D "string" to file
+        # with open("temp.txt", 'w') as f:
+        #     for row in obs:
+        #         f.write(" ".join(list(row.astype(str))))
+        #         f.write("\n")
+            
+        #     f.close()
+
         # exit()
+
+        return obs
 
     # https://www.gymlibrary.dev/api/core/#gym.Env.reset
     def reset(self, lvl, user=False, countdown=False):
@@ -343,7 +372,7 @@ class Game(gym.Env):
                     # Step the environment forward
                     observation, reward, nextlevel, gameover, _ = self.step(lvl, action, user)
                     self.render()
-                    self.get_observation()
+                    obs = self.get_observation()
 
                 if nextlevel:
                     # Stop lvl from iterating > once

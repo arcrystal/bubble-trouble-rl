@@ -1,7 +1,7 @@
 import pygame
 from game import TIMESTEP, DISPLAY_WIDTH, DISPLAY_HEIGHT, FPS
 
-from numpy import sqrt
+import numpy as np
 
 YACC = [
     # DISPLAY HEIGHT --> ballY == 229
@@ -21,12 +21,12 @@ class Ball(pygame.sprite.Sprite):
     XSPEED = DISPLAY_WIDTH / 9.5
     # Ball size
     sizes = [
-        DISPLAY_WIDTH / 50.7273, # 55=b1
-        DISPLAY_WIDTH / 29.3684, # 95=b2
-        DISPLAY_WIDTH / 15.7627, # 177=b3
-        DISPLAY_WIDTH / 10.856, # 257=b4
-        DISPLAY_WIDTH / 8.2301, # 339=b5
-        DISPLAY_WIDTH / 6.7718] # 412=b6
+        int(DISPLAY_WIDTH / 50.7273), # 55=b1
+        int(DISPLAY_WIDTH / 29.3684), # 95=b2
+        int(DISPLAY_WIDTH / 15.7627), # 177=b3
+        int(DISPLAY_WIDTH / 10.856), # 257=b4
+        int(DISPLAY_WIDTH / 8.2301), # 339=b5
+        int(DISPLAY_WIDTH / 6.7718)] # 412=b6
 
     SPRITES = {
         'yellow':pygame.image.load("Sprites/ball_yellow.png"),
@@ -77,12 +77,21 @@ class Ball(pygame.sprite.Sprite):
         self.size = Ball.sizes[ballsize]
         self.color = color
         self.image = pygame.transform.scale(Ball.SPRITES[color], (self.size, self.size))
-        # Create a new 2D array that directly references the ball pixels.
-        # TODO: make sure this works and ball_pixels updates for every step
-        self.pixels = pygame.surfarray.array2d(self.image)
         self.rect = self.image.get_rect()
         self.rect.center = (self.x, self.y)
 
+        #self.pixels = np.array((self.size, self.size))
+        self.pixels = np.zeros((self.size, self.size), dtype=int)
+        ci, cj = int(self.size/2), int(self.size/2)
+        cr = int(self.size/2)
+        I, J = np.meshgrid(np.arange(self.size),np.arange(self.size))
+        dist = np.sqrt((I - ci) ** 2 + (J - cj) ** 2)
+        self.pixels[np.where(dist < cr)] = ballsize
+        
+    def printBallArray(self):
+        for row in self.pixels:
+            print(" ".join(list(row.astype(str))))
+        
     def getSize(self):
         return self.ballsize
 
