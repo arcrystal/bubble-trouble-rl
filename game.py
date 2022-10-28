@@ -32,6 +32,7 @@ from gym.spaces import Discrete, Dict, Box
 import numpy as np
 from numpy import uint8 as np_uint8
 from numpy import array as np_array
+from numpy import sqrt
 
 class Game(gym.Env):
     """
@@ -113,6 +114,10 @@ class Game(gym.Env):
 
         return (player_obs, laser_obs, ball_obs)
 
+    def get_reward(self):
+        
+        pass
+
     # https://www.gymlibrary.dev/api/core/#gym.Env.reset
     def reset(self, lvl, user=False, countdown=False):
         """
@@ -174,8 +179,7 @@ class Game(gym.Env):
                     self.screen.blit(render_text, (DISPLAY_WIDTH / 2 - 10, 75))
                     pygame.display.update()
 
-        observation, info = None, {} # TODO: give these information
-        return observation, info
+        return self.get_observation(), {}
 
     def exit_if_quitting(self):
         for event in pygame.event.get():
@@ -225,8 +229,8 @@ class Game(gym.Env):
             if pygame.sprite.collide_mask(self.player, ball):
                 # print("You lose.")
                 self.shooting = False
-                observation, reward, gameover, info = 0., 0., True, {}
-                return observation, reward, nextlevel, gameover, info
+                gameover = True
+                return self.get_observation(), self.score - 500, nextlevel, gameover, {}
 
             if self.shooting:
                 self.laser.update()
@@ -239,6 +243,12 @@ class Game(gym.Env):
                     if pop_result is not None:
                         self.lvlsprites.add(pop_result)
                         self.balls.add(pop_result)
+                        self.score += 10
+                    else:
+                        # Get 2.5x points for popping the last ball, so the agent
+                        # learns to remove balls from the screen before popping
+                        # new ones.
+                        self.score += 25
                 elif self.laser.hitCeiling():
                     # print("Ceiling pop")
                     self.shooting = False
@@ -247,9 +257,11 @@ class Game(gym.Env):
                 ball.bounceY()
 
         self.clock.tick(FPS)
-        self.timer += self.clock.get_time()
+        timestep = self.clock.get_time()
+        self.timer += timestep
         elapsed = DISPLAY_WIDTH / Game.LVL_TIME[lvl] * self.timer
         self.timeleft = DISPLAY_WIDTH - elapsed
+        self.score -= timestep / 200
         if self.timeleft <= 0:
             # print("Time ran out.")
             # print("You lose.")
@@ -257,16 +269,12 @@ class Game(gym.Env):
             self.shooting = False
         elif not self.balls:
             nextlevel = True
+            self.score += Game.LVL_TIME[lvl] / 200
+            self.score += round(self.timeleft / 10)
 
         self.lvlsprites.update()
-
-        # Get reward
-        reward = round(self.score - elapsed / 10)
-        # for ball in self.balls: reward -= 2 ** (2*ball.getSize())
-
-        # observation, reward, truncated, terminated, info
-        observation, info = None, {}
-        return observation, reward, nextlevel, gameover, info
+        #      observation,            reward,     truncated, terminated, info
+        return self.get_observation(), self.score, nextlevel, gameover,   {}
 
     # https://www.gymlibrary.dev/api/core/#gym.Env.render
     def render(self):
@@ -359,16 +367,16 @@ class Game(gym.Env):
                         action = self.policy(observation)
                     
                     # Step the environment forward
-                    observation, reward, nextlevel, gameover, _ = self.step(lvl, action, user)
+                    observation, reward, nextlevel, gameover, _ = self.step(lvl, action, user)          
+                    print(reward)          
                     self.render()
-                    obs = self.get_observation()
 
                 if nextlevel:
+                    exit()
                     # Stop lvl from iterating > once
                     nextlevel = False
                     # Update base reward (game score)
-                    self.score += Game.LVL_TIME[lvl] / 200
-                    self.score += round(self.timeleft / 10)
+                    
             
             # Print statistics and reset the environment
             print("Final score:", self.score)
