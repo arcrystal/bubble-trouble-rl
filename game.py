@@ -47,6 +47,7 @@ class Game(gym.Env):
         # https://www.gymlibrary.dev/api/core/#gym.Env.observation_space
         # https://www.gymlibrary.dev/api/core/#gym.Env.action_space
         self.action_space = gym.spaces.Discrete(4)
+        self.init_render()
 
     def init_render(self):
         pygame.init()
@@ -54,12 +55,12 @@ class Game(gym.Env):
         # display_height + platform_height + timer_height
         self.screen = pygame.display.set_mode((DISPLAY_WIDTH, DISPLAY_HEIGHT+27+10)) 
         pygame.display.set_caption("Ball Breaker")
-        self.level = 1
         self.timer = 0
+        self.level = 1
         self.shooting = False
-        self.font = pygame.font.SysFont('Calibri', 25, True, True)
         self.backgrounds = [pygame.image.load("Backgrounds/bluepink.jpg").convert()]
         self.backgrounds *= len(Game.LVL_TIME)
+        self.font = pygame.font.SysFont('Calibri', 25, True, True)
         self.clock = pygame.time.Clock()
 
     def get_state(self):
@@ -82,7 +83,6 @@ class Game(gym.Env):
         """
         # Reset gameplay variables
         self.timeleft = DISPLAY_WIDTH
-        self.background = self.backgrounds[self.level]
         self.timer = 0
 
         # Creates sprites and convert pixel format to same as final display
@@ -108,6 +108,7 @@ class Game(gym.Env):
 
         # Render start screen
         if mode=='human':
+            self.background = self.backgrounds[self.level]
             lvl_font = self.font.render(f'Level {self.level}', True, Game.GREEN, Game.BLUE)
             lvl_font_rect = lvl_font.get_rect()
             lvl_font_rect.center = DISPLAY_WIDTH / 2, DISPLAY_HEIGHT / 10
@@ -172,9 +173,6 @@ class Game(gym.Env):
                         self.balls.add(pop_result)
                         reward = 1
                     else:
-                        # Get 2.5x points for popping the last ball, so the agent
-                        # learns to remove balls from the screen before popping
-                        # new ones.
                         reward = 2
                 elif self.laser.hitCeiling():
                     # print("Ceiling pop")
@@ -190,7 +188,6 @@ class Game(gym.Env):
         self.timeleft = DISPLAY_WIDTH - elapsed
         if self.timeleft <= 0:
             # print("Time ran out.")
-            # print("You lose.")
             gameover = True
             self.shooting = False
         elif not self.balls:
@@ -199,8 +196,10 @@ class Game(gym.Env):
 
         self.lvlsprites.update()
         # Draw and update screen
-        self.screen.blit(self.background, (0, 0))
-        self.draw_timer(self.timeleft)
+        if mode == 'human':
+            self.screen.blit(self.background, (0, 0))
+            self.draw_timer(self.timeleft)
+        # Draw and update sprites
         self.lvlsprites.draw(self.screen)
         if self.shooting:
             self.screen.blit(self.laser.curr, self.laser.rect)

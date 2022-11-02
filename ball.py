@@ -78,7 +78,8 @@ class Ball(pygame.sprite.Sprite):
         self.color = color
         self.image = pygame.transform.scale(Ball.SPRITES[color], (self.size, self.size))
         self.rect = self.image.get_rect()
-        self.rect.center = (self.x, self.y)
+        self.rect.x = self.x
+        self.rect.y = self.y
 
         #self.pixels = np.array((self.size, self.size))
         self.pixels = np.zeros((self.size, self.size), dtype=int)

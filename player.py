@@ -2,28 +2,35 @@ import pygame
 from game import TIMESTEP, DISPLAY_WIDTH, DISPLAY_HEIGHT
 
 
+sprites = {
+        "still":pygame.image.load("Sprites/person_still_sm.png"),
+        "shoot":pygame.image.load("Sprites/person_shoot_sm.png"),
+        "left":pygame.image.load("Sprites/person_left_sm.png"),
+        "right":pygame.image.load("Sprites/person_right_sm.png")}
+
+resize = DISPLAY_WIDTH / 890
+for key, val in sprites.items():
+    sprites[key] = pygame.transform.scale(val, (val.get_rect().width * resize, val.get_rect().height * resize))
+
+
 class Player(pygame.sprite.Sprite):
     """
     Player object for ball breaker Game().
     """
     RED = (255, 0, 0)
     SPEED = DISPLAY_WIDTH / 5
-
-    SPRITES = {
-        "still":pygame.image.load("Sprites/person_still_sm.png"),
-        "shoot":pygame.image.load("Sprites/person_shoot_sm.png"),
-        "left":pygame.image.load("Sprites/person_left_sm.png"),
-        "right":pygame.image.load("Sprites/person_right_sm.png")}
+    SPRITES = sprites
     
     def __init__(self):
         super().__init__() # equivalent to pygame.sprite.Sprite.__init__(self)
+        self.x = DISPLAY_WIDTH / 2
+        self.y = DISPLAY_HEIGHT
         self.xspeed = 0
         self.yspeed = 0
         self.yacceleration = 0
         self.image = Player.SPRITES['still']
         self.rect = self.image.get_rect()
-        self.x = DISPLAY_WIDTH / 2
-        self.y = DISPLAY_HEIGHT - self.rect.height
+        self.y -= self.image.get_height()
         self.rect.x = self.x
         self.rect.y = self.y
 

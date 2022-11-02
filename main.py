@@ -10,7 +10,7 @@ from rl.agents import DQNAgent
 from rl.memory import SequentialMemory
 from rl.policy import LinearAnnealedPolicy, EpsGreedyQPolicy
 
-FRAMES = int(FPS)
+FRAMES = int(FPS / 5)
 
  # -------------------------- TRAINING RL AGENTS ----------------------
 def build_model(height, width, channels, actions):
@@ -46,7 +46,7 @@ def train():
     dqn = build_agent(model, 4)
     dqn.compile(Adam(learning_rate=1e-4))
     print(model.summary())
-    dqn.fit(env, nb_steps=10000, visualize=True, verbose=2)
+    dqn.fit(env, nb_steps=50000, visualize=True, verbose=2)
 
 
 
