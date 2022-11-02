@@ -1,4 +1,4 @@
-from game import Game, DISPLAY_HEIGHT, DISPLAY_WIDTH
+from game import Game, DISPLAY_HEIGHT, DISPLAY_WIDTH, FPS
 import argparse
 
 from tensorflow.keras.models import Sequential
@@ -10,6 +10,8 @@ from rl.agents import DQNAgent
 from rl.memory import SequentialMemory
 from rl.policy import LinearAnnealedPolicy, EpsGreedyQPolicy
 
+FRAMES = int(FPS)
+
  # -------------------------- TRAINING RL AGENTS ----------------------
 def build_model(height, width, channels, actions):
     model = Sequential()
@@ -17,7 +19,7 @@ def build_model(height, width, channels, actions):
     # stride=how far the filter steps to traverse the img frame
     model.add(Convolution2D(
         32, (8,8), strides=(4,4), activation='relu',
-        input_shape=(3, width, height, channels)))
+        input_shape=(FRAMES, width, height, channels)))
     model.add(Convolution2D(64, (4,4), strides=(2,2), activation='relu'))
     model.add(Convolution2D(64, (3,3), activation='relu'))
     model.add(Flatten())
@@ -31,7 +33,7 @@ def build_agent(model, actions):
         EpsGreedyQPolicy(), attr='eps', value_max=1,
         value_min=0.1, value_test=0.2, nb_steps=10000)
     # store the past 3 windows for 1000 episodes
-    memory = SequentialMemory(limit=1000, window_length=10)
+    memory = SequentialMemory(limit=1000, window_length=FRAMES)
     dqn = DQNAgent(
         model=model, policy=policy, memory=memory,
         enable_dueling_network=True, dueling_type='avg',

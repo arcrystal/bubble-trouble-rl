@@ -1,5 +1,4 @@
 import os
-import matplotlib.pyplot as plt
 
 FPS = float(os.environ.get('FPS'))
 DISPLAY_WIDTH = int(os.environ.get('DISPLAY_WIDTH')) # Default 890
@@ -10,8 +9,9 @@ import pygame
 from player import Player
 from barrier import Barrier
 from laser import Laser
-from levels import BALLS
-from itertools import product
+from levels import Levels
+
+from copy import deepcopy
 
 VAL_TO_ACTION = {
     0: pygame.K_LEFT,
@@ -41,12 +41,12 @@ class Game(gym.Env):
         6: 90000,
         7: 100000,
         8: 100000}
+    LEVELS = Levels()
 
     def __init__(self):
         # https://www.gymlibrary.dev/api/core/#gym.Env.observation_space
         # https://www.gymlibrary.dev/api/core/#gym.Env.action_space
         self.action_space = gym.spaces.Discrete(4)
-        self.init_render()
 
     def init_render(self):
         pygame.init()
@@ -78,7 +78,7 @@ class Game(gym.Env):
                 background: (pygame.Surface): background from game screen
                 timer (float): keeps track of time elapsed
                 timeleft (float): keeps track of time with respect to display size
-            observation (object)
+            observation (np.array): 3D array of the screen at the current timestep
         """
         # Reset gameplay variables
         self.timeleft = DISPLAY_WIDTH
@@ -86,7 +86,7 @@ class Game(gym.Env):
         self.timer = 0
 
         # Creates sprites and convert pixel format to same as final display
-        ball_sprites = BALLS[self.level]
+        ball_sprites = Game.LEVELS.get(self.level)
         for sprites in ball_sprites:
             for color, sprite in sprites.SPRITES.items():
                 sprites.SPRITES[color] = sprite.convert_alpha()
@@ -126,13 +126,15 @@ class Game(gym.Env):
                     render_text = self.font.render(text, True, Game.RED)
                     self.screen.blit(render_text, (DISPLAY_WIDTH / 2 - 10, 75))
                     pygame.display.update()
+        else:
+            self.level = 1
 
         return self.get_state()
 
     # https://www.gymlibrary.dev/api/core/#gym.Env.step
-    def step(self, action=None, user=False):
+    def step(self, action=None, mode='rgb'):
         # Apply action
-        if user:
+        if mode == 'human':
             self.handle_keyevents()
         else:
             self.exit_if_quitting()
@@ -193,7 +195,7 @@ class Game(gym.Env):
             self.shooting = False
         elif not self.balls:
             self.level += 1
-            self.reset()
+            self.reset(mode)
 
         self.lvlsprites.update()
         # Draw and update screen
@@ -287,18 +289,19 @@ class Game(gym.Env):
         
         return None
 
-    def play(self, mode='rbg', num_trials=2):
+    def play(self, mode='rgb', num_trials=2):
         """
         Highest level class method for playing or simulating the pygame.
 
         Args:
-            user (bool): True if user is playing, False if simulating with RL agent.
+            mode (str): 'human' if user is playing, 'rgb' if simulating with RL agent.
             num_trials: How many trials the game will run.
         Returns:
             None.
         Raises:
             None.
         """
+        self.init_render()
         for trial in range(num_trials):
             gameover = False
             steps = 0
