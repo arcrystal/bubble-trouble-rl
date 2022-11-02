@@ -1,5 +1,4 @@
 import os
-import random 
 import matplotlib.pyplot as plt
 
 FPS = float(os.environ.get('FPS'))
@@ -21,9 +20,6 @@ VAL_TO_ACTION = {
     3: None}
 
 import gym
-from gym.spaces import Discrete, Dict, Box
-
-import numpy as np
 
 class Game(gym.Env):
     """
@@ -321,8 +317,3 @@ class Game(gym.Env):
                         
         print(info)
         self.close()
-
-
-# Needs to be observation reward gameover info
-# we can make self.level iterate in step and reset takes self.level
-# check self.reset in all places.
