@@ -2,8 +2,9 @@ from ball import Ball
 from game import DISPLAY_WIDTH, DISPLAY_HEIGHT
 b1bounce = DISPLAY_WIDTH / 10
 
+# Ball(x, y, xspeed, yspeed, xacceleration, ballsize, color)
 BALLS = {
-    1: [Ball(DISPLAY_WIDTH // 4, DISPLAY_HEIGHT // 4, 0, 0, 0, 1, 'yellow')],
+    1: [Ball(DISPLAY_WIDTH // 5, DISPLAY_HEIGHT // 4, 'right', 0, 0, 1, 'yellow')],
     2: [Ball(DISPLAY_WIDTH // 4, DISPLAY_HEIGHT // 4, 0, 0, 0, 2, 'green') ],
     3: [Ball(DISPLAY_WIDTH // 4, DISPLAY_HEIGHT // 4, 0, 0, 0, 3, 'red')   ],
     4: [Ball(DISPLAY_WIDTH // 4, DISPLAY_HEIGHT // 4, 'left', 0, 0, 2, 'orange'),
