@@ -1,5 +1,7 @@
 import pygame
-from game import TIMESTEP, DISPLAY_HEIGHT
+from game import DISPLAY_WIDTH, TIMESTEP, DISPLAY_HEIGHT
+
+resize = DISPLAY_WIDTH / 890
 
 class Laser():
     """
@@ -10,6 +12,8 @@ class Laser():
         self.height = 0
         self.yspeed = DISPLAY_HEIGHT * TIMESTEP
         self.image = pygame.image.load("Sprites/laser.png")
+        self.image = pygame.transform.scale(self.image, (self.image.get_width() * resize,
+                                                         self.image.get_height()))
         self.curr = pygame.transform.scale(
             self.image,
             (self.image.get_width(), 5))

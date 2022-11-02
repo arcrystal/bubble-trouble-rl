@@ -13,6 +13,8 @@ YACC = [
     DISPLAY_HEIGHT * 1 # NOT
 ]
 
+resize = DISPLAY_WIDTH / 890
+
 class Ball(pygame.sprite.Sprite):
     """
     A pygame object for the game.
@@ -160,7 +162,7 @@ class Ball(pygame.sprite.Sprite):
             # (0 - self.yspeed) / -YACC[self.ballsize]
             time_from_top = abs(self.yspeed / YACC[self.ballsize])
             # the closer the ball is to the vertex, the higher it pops
-            newYspeed = max(-300, -30 / (time_from_top))
+            newYspeed = max(-300 * resize, -30 / (time_from_top) * resize)
             return (Ball(self.x-10, self.y, 'left', newYspeed,
                     0, self.ballsize-1, self.color),
                     Ball(self.x+10, self.y, 'right', newYspeed,

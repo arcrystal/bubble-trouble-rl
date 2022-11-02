@@ -129,6 +129,7 @@ class Game(gym.Env):
                     pygame.display.update()
         else:
             self.level = 1
+            self.screen.fill((0, 0, 0))
 
         return self.get_state()
 
