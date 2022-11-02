@@ -281,12 +281,15 @@ class Game(gym.Env):
             3: None
         }
         """
-        print("Obs shape:", observation.shape)
-        action = VAL_TO_ACTION[self.action_space.sample()]
-        while self.shooting and action == 2:
+        if mode == 'train':
+            print("Obs shape:", observation.shape)
             action = VAL_TO_ACTION[self.action_space.sample()]
+            while self.shooting and action == 2:
+                action = VAL_TO_ACTION[self.action_space.sample()]
+            
+            return action
         
-        return action
+        return None
 
     def play(self, mode='rbg', num_trials=2):
         """
@@ -300,16 +303,13 @@ class Game(gym.Env):
         Raises:
             None.
         """
-        # Set initial game vars
-        gameover = False
-        trial_reward = 0
-        # Play the game num_trials times
         for trial in range(num_trials):
             gameover = False
-            observation = self.reset(mode)
             steps = 0
+            trial_reward = 0
+            observation = self.reset(mode)
             while not gameover:
-                action = self.policy(observation)
+                action = self.policy(observation, mode)
                 observation, reward, gameover, info = self.step(action, mode)
                 trial_reward += reward
                 steps += 1
