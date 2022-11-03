@@ -11,9 +11,9 @@ class Levels:
         if lvl == 1:
             return [Ball(DISPLAY_WIDTH // 5, DISPLAY_HEIGHT // 4, 'right', 0, 0, 1, 'yellow')]
         elif lvl == 2:
-            return [Ball(DISPLAY_WIDTH // 4, DISPLAY_HEIGHT // 4, 0, 0, 0, 2, 'green')]
+            return [Ball(DISPLAY_WIDTH // 4, DISPLAY_HEIGHT // 4, 'right', 0, 0, 2, 'green')]
         elif lvl == 3:
-            return [Ball(DISPLAY_WIDTH // 4, DISPLAY_HEIGHT // 4, 0, 0, 0, 3, 'red')]
+            return [Ball(DISPLAY_WIDTH // 4, DISPLAY_HEIGHT // 4, 'right', 0, 0, 3, 'red')]
         elif lvl == 4:
             return [Ball(DISPLAY_WIDTH // 4, DISPLAY_HEIGHT // 4, 'left', 0, 0, 2, 'orange'),
                     Ball(3 * DISPLAY_WIDTH // 4, DISPLAY_HEIGHT // 4, 'right', 0, 0, 2, 'orange')]

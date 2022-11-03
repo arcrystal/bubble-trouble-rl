@@ -31,7 +31,7 @@ def build_model(height, width, channels, actions):
 def build_agent(model, actions):
     policy = LinearAnnealedPolicy(
         EpsGreedyQPolicy(), attr='eps', value_max=1,
-        value_min=0.1, value_test=0.2, nb_steps=10000)
+        value_min=0.1, value_test=0.05, nb_steps=5000)
     # store the past 3 windows for 1000 episodes
     memory = SequentialMemory(limit=1000, window_length=FRAMES)
     dqn = DQNAgent(
@@ -46,9 +46,9 @@ def train():
     dqn = build_agent(model, 4)
     dqn.compile(Adam(learning_rate=1e-4))
     print(model.summary())
-    dqn.fit(env, nb_steps=50000, visualize=True, verbose=2)
-
-
+    history = dqn.fit(env, nb_steps=100000, visualize=True, verbose=2, action_repetition=5)
+    dqn.save_weights("SavedWeights/dqn_100k_steps.h5f")
+    return history
 
 def main():
     print("------------------------------")
@@ -69,7 +69,13 @@ def main():
         game = Game()
         game.play(mode='human')
     if args.Train:
-        train()
+        history = train()
+        with open("history_100k_steps.txt", 'w') as f:
+            f.write(str(history.history))
+            f.write("\n")
+            f.write(str(history.params))
+        
+        f.close()
 
 if __name__=="__main__":
     main()

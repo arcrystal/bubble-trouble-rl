@@ -136,15 +136,15 @@ class Game(gym.Env):
     # https://www.gymlibrary.dev/api/core/#gym.Env.step
     def step(self, action=None, mode='rgb'):
         # Apply action
-        if mode == 'human':
+        if action is None:
             self.handle_keyevents()
         else:
             self.exit_if_quitting()
-            if action == pygame.K_LEFT:
+            if action in (pygame.K_LEFT, 0):
                 self.player.left()
-            elif action == pygame.K_RIGHT:
+            elif action in (pygame.K_RIGHT, 1):
                 self.player.right()
-            elif action == pygame.K_UP and not self.shooting:
+            elif action in (pygame.K_UP, 2) and not self.shooting:
                 self.shooting = True
                 self.laser = Laser(self.player.rect.centerx)
             else:
@@ -187,7 +187,8 @@ class Game(gym.Env):
         self.timer += timestep
         elapsed = DISPLAY_WIDTH / Game.LVL_TIME[self.level] * self.timer
         self.timeleft = DISPLAY_WIDTH - elapsed
-        if self.timeleft <= 0:
+        # TODO: Take out `and False`, figure out why time is messed up when training
+        if self.timeleft <= 0 and False:
             # print("Time ran out.")
             gameover = True
             self.shooting = False
@@ -200,6 +201,8 @@ class Game(gym.Env):
         if mode == 'human':
             self.screen.blit(self.background, (0, 0))
             self.draw_timer(self.timeleft)
+        else:
+            self.screen.fill((0, 0, 0))
         # Draw and update sprites
         self.lvlsprites.draw(self.screen)
         if self.shooting:
