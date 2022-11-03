@@ -135,11 +135,11 @@ class Game(gym.Env):
 
     # https://www.gymlibrary.dev/api/core/#gym.Env.step
     def step(self, action=None, mode='rgb'):
-        # Apply action
         if action is None:
+            # Handle key events when player is playing
             self.handle_keyevents()
         else:
-            self.exit_if_quitting()
+            # self.exit_if_quitting() # wastes time but you can close the window
             if action in (pygame.K_LEFT, 0):
                 self.player.left()
             elif action in (pygame.K_RIGHT, 1):
@@ -154,12 +154,14 @@ class Game(gym.Env):
         reward = -0.05
         gameover = False
         for ball in self.balls:
-            if pygame.sprite.collide_mask(self.player, ball):
-                # print("You lose.")
-                self.shooting = False
-                gameover = True
-                reward = -10
-                return self.get_state(), reward, gameover, {}
+            # Faster computationally than collide_mask and often is enough
+            if ball.rect.y + 100 > self.player.getY():
+                if pygame.sprite.collide_mask(self.player, ball):
+                    # print("You lose.")
+                    self.shooting = False
+                    gameover = True
+                    reward = -10
+                    return self.get_state(), reward, gameover, {}
 
             if self.shooting:
                 self.laser.update()

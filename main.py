@@ -46,7 +46,7 @@ def train():
     dqn = build_agent(model, 4)
     dqn.compile(Adam(learning_rate=1e-4))
     print(model.summary())
-    history = dqn.fit(env, nb_steps=100000, visualize=True, verbose=2, action_repetition=3)
+    history = dqn.fit(env, nb_steps=100000, visualize=False, verbose=2, action_repetition=3)
     dqn.save_weights("SavedWeights/dqn_100k_steps.h5f")
     return history
 
