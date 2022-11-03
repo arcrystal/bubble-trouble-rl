@@ -151,7 +151,7 @@ class Game(gym.Env):
                 if self.player.xspeed != 0:
                     self.player.stop()
 
-        reward = 0
+        reward = -0.05
         gameover = False
         for ball in self.balls:
             if pygame.sprite.collide_mask(self.player, ball):
@@ -194,6 +194,7 @@ class Game(gym.Env):
             self.shooting = False
         elif not self.balls:
             self.level += 1
+            reward = 10
             self.reset(mode)
 
         self.lvlsprites.update()

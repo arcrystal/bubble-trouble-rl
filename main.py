@@ -69,13 +69,7 @@ def main():
         game = Game()
         game.play(mode='human')
     if args.Train:
-        history = train()
-        with open("history_100k_steps.txt", 'w') as f:
-            f.write(str(history.history))
-            f.write("\n")
-            f.write(str(history.params))
-        
-        f.close()
+        train()
 
 if __name__=="__main__":
     main()

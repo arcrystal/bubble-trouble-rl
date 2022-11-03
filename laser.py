@@ -1,7 +1,7 @@
 import pygame
 from game import DISPLAY_WIDTH, TIMESTEP, DISPLAY_HEIGHT
 
-resize = DISPLAY_WIDTH / 890
+resize = DISPLAY_WIDTH / 2000
 
 class Laser():
     """
