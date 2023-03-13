@@ -1,33 +1,25 @@
-from game import Game, DISPLAY_HEIGHT, DISPLAY_WIDTH, FPS
-import argparse, os
+from game import Game, DISPLAY_HEIGHT, TIMESTEP
 
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense, Flatten, Convolution2D
+from tensorflow.keras.layers import Dense, Flatten
 from tensorflow.keras.optimizers import Adam
 
-# Keras-RL2
 from rl.agents import DQNAgent
 from rl.memory import SequentialMemory
 from rl.policy import LinearAnnealedPolicy, EpsGreedyQPolicy
 
-FRAMES = 30 # num frames for laser to reach ceiling=26
+import argparse
+import math
+
+# num frames for laser to reach ceiling
+FRAMES = math.ceil(DISPLAY_HEIGHT / math.floor(DISPLAY_HEIGHT * TIMESTEP)) + 1
 n_features = 128
 
- # -------------------------- TRAINING RL AGENTS ----------------------
 def build_model(n_features, lookback=FRAMES, num_actions=4):
     model = Sequential()
-    # 32 Filters of size 8x8
-    # stride=how far the filter steps to traverse the img frame
-    # model.add(Convolution2D(
-    #     32, (8,8), strides=(4,4), activation='relu',
-    #     input_shape=(FRAMES, width, height, channels)))
-    # model.add(Convolution2D(64, (4,4), strides=(2,2), activation='relu'))
-    # model.add(Convolution2D(64, (3,3), activation='relu'))
-    # model.add(Flatten())
-    # model.add(Dense(32, activation='relu'))
-    # model.add(Dense(actions, activation='linear'))
     model.add(Flatten(input_shape=(FRAMES, n_features)))
-    model.add(Dense(512, activation="relu"))
+    model.add(Dense(256, activation="relu"))
+    model.add(Dense(256, activation="relu"))
     model.add(Dense(64, activation="relu"))
     model.add(Dense(num_actions, activation='linear'))
     return model
@@ -35,7 +27,7 @@ def build_model(n_features, lookback=FRAMES, num_actions=4):
 def build_agent(model, actions, n_warmups):
     policy = LinearAnnealedPolicy(
         EpsGreedyQPolicy(), attr='eps', value_max=1,
-        value_min=0.1, value_test=0.05, nb_steps=1000)
+        value_min=0.1, value_test=0.05, nb_steps=10000)
 
     memory = SequentialMemory(limit=1000000, window_length=FRAMES)
     # dqn = DQNAgent(
@@ -50,16 +42,16 @@ def build_agent(model, actions, n_warmups):
     
     return dqn
 
-def train(visualize, checkpoint=False, n_warmups=1000):
+def train(visualize, checkpoint, n_steps, n_warmups):
     model = build_model(n_features=n_features, lookback=FRAMES, num_actions=4)
-    env = Game(model=model, visualize=visualize, n_features=n_features)
+    print(model.summary())
+    env = Game(model=model, training=True, n_features=n_features)
     dqn = build_agent(model, 4, n_warmups)
     dqn.compile(Adam(learning_rate=1e-4))
     if checkpoint:
         dqn.load_weights(checkpoint)
-    history = dqn.fit(env, nb_steps=10000, visualize=visualize, verbose=1, action_repetition=1)
+    dqn.fit(env, nb_steps=n_steps, visualize=visualize, verbose=1, action_repetition=1)
     dqn.save_weights("Weights/dqn_laser_lookback")
-    return history
 
 def test(checkpoint, episode=1, n_warmups=1000):
     model = build_model(n_features=n_features, lookback=FRAMES, num_actions=4)
@@ -89,21 +81,32 @@ def main():
     parser.add_argument(
         "-m", "--Model",
         help="Start training from model checkpoint")
+    parser.add_argument(
+        "-s", "--Steps",
+        help="Num training steps")
+    parser.add_argument(
+        "-w", "--Warmup",
+        help="Num warmup steps")
     args = parser.parse_args()
+    try:
+        n_steps = int(args.Steps)
+    except TypeError:
+        n_steps = 40000
+    try:
+        n_warmup = int(args.Warmup)
+    except TypeError:
+        n_warmup = 20000
+        
     # Play game with specified params
-    dqn = False
     if args.User:
         game = Game()
         game.play(mode='human')
     if args.Train:
-        warmups = 1000
         if args.Model:
-            warmups = FRAMES
             ckpt = "Weights/" + args.Model
         else:
             ckpt = False
-        history = train(visualize=True, checkpoint=ckpt, n_warmups=warmups)
-        print(history)
+        train(visualize=True, checkpoint=ckpt, n_steps=n_steps, n_warmups=n_warmup)
     if args.Test:
         if args.Model:
             ckpt = "Weights/" + args.Model

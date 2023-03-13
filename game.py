@@ -4,7 +4,7 @@ import random
 FPS = float(os.environ.get('FPS'))
 DISPLAY_WIDTH = int(os.environ.get('DISPLAY_WIDTH')) # Default 890
 TIMESTEP = 1 / FPS
-DISPLAY_HEIGHT =int(DISPLAY_WIDTH * 0.5337) # Default 475
+DISPLAY_HEIGHT = int(DISPLAY_WIDTH * 0.5337) # Default 475
 
 import pygame
 from player import Player
@@ -57,9 +57,9 @@ class Game(gym.Env):
     def init_render(self, training):
         pygame.init()
         pygame.mixer.init()
+        self.screen = pygame.display.set_mode((DISPLAY_WIDTH, DISPLAY_HEIGHT+27+10))
         # display_height + platform_height + timer_height
         if not training:
-            self.screen = pygame.display.set_mode((DISPLAY_WIDTH, DISPLAY_HEIGHT+27+10))
             self.backgrounds = [pygame.image.load("Backgrounds/bluepink.jpg").convert()]
             self.backgrounds *= len(Game.LVL_TIME)
             pygame.display.set_caption("Ball Breaker")
@@ -98,18 +98,19 @@ class Game(gym.Env):
         self.timeleft = DISPLAY_WIDTH
         self.timer = 0
 
-        # Creates sprites and convert pixel format to same as final display
+        # Creates sprites
         ball_sprites = Game.LEVELS.get(self.level)
+        self.player = Player()
+        self.platform = Barrier()
+
+        # Convert alphas so sprites have the pixel format as display
         for sprites in ball_sprites:
             for color, sprite in sprites.SPRITES.items():
                 sprites.SPRITES[color] = sprite.convert_alpha()
-
-        self.player = Player()
         for key, sprite in self.player.SPRITES.items():
-                self.player.SPRITES[key] = sprite.convert_alpha()
-
-        self.platform = Barrier()
+            self.player.SPRITES[key] = sprite.convert_alpha()
         self.platform.image = self.platform.image.convert_alpha()
+        
 
         # Create sprite groups and add sprites
         self.balls = pygame.sprite.Group()
@@ -163,7 +164,7 @@ class Game(gym.Env):
                 direction = self.player.right()
             elif action in (pygame.K_UP, 2):
                 if self.shooting:
-                    reward -= 9999999
+                    reward -= 99
                 else:
                     self.shooting = True
                     self.laser = Laser(self.player.rect.centerx)
@@ -171,7 +172,7 @@ class Game(gym.Env):
                 if self.player.xspeed != 0:
                     self.player.stop()
             if self.player.bad_move(direction):
-                reward -= 9999999
+                reward -= 99
 
         # Discourage spending time
         reward -= 0.001
@@ -181,7 +182,7 @@ class Game(gym.Env):
                 if pygame.sprite.collide_mask(self.player, ball):
                     self.shooting = False
                     gameover = True
-                    reward -= 1
+                    reward -= 99
                     return self.get_state(), reward, gameover, {}
 
             if self.shooting:
@@ -197,7 +198,7 @@ class Game(gym.Env):
                         self.lvlsprites.add(pop_result)
                         self.balls.add(pop_result)
                 elif self.laser.hitCeiling():
-                    reward -= 0.05
+                    reward -= 99
                     self.shooting = False
 
             if pygame.sprite.collide_rect(ball, self.platform):
@@ -207,7 +208,7 @@ class Game(gym.Env):
         # Level Complete
         if not self.balls:
             self.level += 1
-            reward += 1
+            reward += 99
             self.reset(mode)
 
         # Update sprites
