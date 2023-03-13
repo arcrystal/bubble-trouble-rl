@@ -12,8 +12,6 @@ from barrier import Barrier
 from laser import Laser
 from levels import Levels
 
-from copy import deepcopy
-
 VAL_TO_ACTION = {
     0: pygame.K_LEFT,
     1: pygame.K_RIGHT,
