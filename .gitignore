@@ -133,3 +133,5 @@ dmypy.json
 Backgrounds/
 Backgrounds/*.jpg
 *.pptx
+Weights/
+Weights/*
