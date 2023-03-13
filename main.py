@@ -59,13 +59,11 @@ def train(visualize, checkpoint=False, n_warmups=1000):
     dqn.save_weights("Weights/dqn_laser_lookback")
     return history
 
-def test(checkpoint, episode=1):
-    if not model:
-        model = build_model(n_features=n_features, lookback=FRAMES, num_actions=4)
-    dqn = build_agent(model, 4)
+def test(checkpoint, episode=1, n_warmups=1000):
+    model = build_model(n_features=n_features, lookback=FRAMES, num_actions=4)
+    dqn = build_agent(model, 4, n_warmups)
     dqn.compile(Adam(learning_rate=1e-4))
     dqn.load_weights(checkpoint)
-    
     env = Game(n_features=n_features)
     dqn.test(env, nb_episodes=episode)
 
