@@ -42,10 +42,12 @@ def build_agent(model, actions, n_warmups):
     #     model=model, policy=policy, memory=memory,
     #     enable_dueling_network=True, dueling_type='avg',
     #     nb_actions=actions, nb_steps_warmup=1000)
+
     dqn = DQNAgent(
         model=model, memory=memory, 
         policy=policy, nb_actions=actions, 
         nb_steps_warmup=n_warmups)
+    
     return dqn
 
 def train(visualize, checkpoint=False, n_warmups=1000):
@@ -64,7 +66,7 @@ def test(checkpoint, episode=1, n_warmups=1000):
     dqn = build_agent(model, 4, n_warmups)
     dqn.compile(Adam(learning_rate=1e-4))
     dqn.load_weights(checkpoint)
-    env = Game(n_features=n_features)
+    env = Game(n_features=n_features, training=False)
     dqn.test(env, nb_episodes=episode)
 
 def main():
