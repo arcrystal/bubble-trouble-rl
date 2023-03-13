@@ -82,6 +82,7 @@ class Ball(pygame.sprite.Sprite):
         self.rect = self.image.get_rect()
         self.rect.x = self.x
         self.rect.y = self.y
+        self.width = self.rect.width
 
         #self.pixels = np.array((self.size, self.size))
         self.pixels = np.zeros((self.size, self.size), dtype=int)
@@ -90,6 +91,9 @@ class Ball(pygame.sprite.Sprite):
         I, J = np.meshgrid(np.arange(self.size),np.arange(self.size))
         dist = np.sqrt((I - ci) ** 2 + (J - cj) ** 2)
         self.pixels[np.where(dist < cr)] = ballsize
+
+    def get_features(self):
+        return [self.x, self.y, self.xspeed, self.yspeed, self.size]
         
     def printBallArray(self):
         for row in self.pixels:
@@ -133,8 +137,7 @@ class Ball(pygame.sprite.Sprite):
             return
         
         # Update speed
-        if self.x < 0 or self.x > DISPLAY_WIDTH - self.rect.width:
-            self.xspeed = -self.xspeed
+        
 
         self.xspeed += self.xacceleration * TIMESTEP
         # vy2	 = v0y2 − 2g(y − y0)
@@ -143,7 +146,6 @@ class Ball(pygame.sprite.Sprite):
         # Update rect dimensions
         self.rect.x = self.x
         self.rect.y = self.y
-        self.pixels = pygame.surfarray.array2d(self.image) # BUG: delete if issue is not fixed
 
     def pop(self):
         """

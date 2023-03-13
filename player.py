@@ -33,6 +33,7 @@ class Player(pygame.sprite.Sprite):
         self.y -= self.image.get_height()
         self.rect.x = self.x
         self.rect.y = self.y
+        self.width = self.rect.width
 
     def getX(self):
         return self.rect.centerx
@@ -61,6 +62,7 @@ class Player(pygame.sprite.Sprite):
         self.rect = self.image.get_rect()
         self.rect.x = self.x
         self.rect.y = self.y
+        return 'left'
 
     def right(self):
         # print("Right.")
@@ -69,6 +71,19 @@ class Player(pygame.sprite.Sprite):
         self.rect = self.image.get_rect()
         self.rect.x = self.x
         self.rect.y = self.y
+        return 'right'
+
+    def bad_move(self, direction):
+        if (self.x > DISPLAY_WIDTH - self.width and 
+            self.xspeed > 0 and 
+            direction=='right'):
+            return True
+        if (self.x < 0 and
+            self.xspeed < 0 and
+            direction=='left'):
+            return True
+        
+        return False
 
     def update(self):
         """
@@ -82,8 +97,8 @@ class Player(pygame.sprite.Sprite):
         Raises:
             None.
         """
-        if self.x > DISPLAY_WIDTH - self.rect.width and self.xspeed > 0:
-            self.x = DISPLAY_WIDTH - self.rect.width
+        if self.x > DISPLAY_WIDTH - self.width and self.xspeed > 0:
+            self.x = DISPLAY_WIDTH - self.width
             self.rect.x = self.x
             self.stop()
             return

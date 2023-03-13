@@ -1,5 +1,3 @@
-import pygame
-
 class Utils():
 
     def __init__(self):
