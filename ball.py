@@ -83,6 +83,7 @@ class Ball(pygame.sprite.Sprite):
         self.rect.x = self.x
         self.rect.y = self.y
         self.width = self.rect.width
+        self.height = self.rect.height
 
         #self.pixels = np.array((self.size, self.size))
         self.pixels = np.zeros((self.size, self.size), dtype=int)
@@ -92,8 +93,19 @@ class Ball(pygame.sprite.Sprite):
         dist = np.sqrt((I - ci) ** 2 + (J - cj) ** 2)
         self.pixels[np.where(dist < cr)] = ballsize
 
-    def get_features(self):
-        return [self.x, self.y, self.xspeed, self.yspeed, self.size]
+    def get_features(self, px, py):
+        if self.xspeed > 0:
+            xspeed = 1
+        else:
+            xspeed = -1
+        if self.yspeed > 0:
+            yspeed = 1
+        else:
+            yspeed = -1
+        return [(self.x+self.width/2 - px) / DISPLAY_WIDTH,
+                max(py - (self.y + self.height), 0) / DISPLAY_HEIGHT,
+                xspeed,
+                yspeed]
         
     def printBallArray(self):
         for row in self.pixels:

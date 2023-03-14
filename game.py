@@ -18,6 +18,15 @@ VAL_TO_ACTION = {
     2: pygame.K_UP,
     3: None}
 
+rewards = {
+        'time-elapsed':  -0.01,
+        'repeat-shot' :  -1,
+        'invalid-move':  -1,
+        'game-over'   :  -1,
+        'pop-ball'    :   1,
+        'hit-ceiling' :  -1,
+    }
+
 import gym
 
 class Game(gym.Env):
@@ -43,7 +52,7 @@ class Game(gym.Env):
         8: 100000}
     LEVELS = Levels()
 
-    def __init__(self, training=True, model=None, visualize=True, n_features=128):
+    def __init__(self, training=True, model=None, visualize=True, n_features=80):
         # https://www.gymlibrary.dev/api/core/#gym.Env.observation_space
         # https://www.gymlibrary.dev/api/core/#gym.Env.action_space
         self.action_space = gym.spaces.Discrete(4)
@@ -69,15 +78,16 @@ class Game(gym.Env):
         self.clock = pygame.time.Clock()
 
     def get_state(self):
-        features = [self.player.getX(), self.player.getY(), int(self.shooting)]
+        x = (self.player.getX() + self.player.getWidth() / 2) / DISPLAY_WIDTH
+        y = self.player.getY()
+        features = [x, int(self.shooting)]
         for ball in self.balls:
-            # xpos, ypos, xspeed, yspeed, size
-            features += ball.get_features()
+            features += ball.get_features(x, y)
         
         return features + [0]*(self.n_features-len(features))
 
     # https://www.gymlibrary.dev/api/core/#gym.Env.reset
-    def reset(self, mode='rgb', countdown=False):
+    def reset(self, mode='rgb', countdown=False, lvl_complete=False):
         """
         Returns:
             info (dict):
@@ -90,8 +100,6 @@ class Game(gym.Env):
                 timeleft (float): keeps track of time with respect to display size
             observation (np.array): 3D array of the screen at the current timestep
         """
-        if not self.visualize:
-            mode = 'fast'
         # Reset gameplay variables
         self.timeleft = DISPLAY_WIDTH
         self.timer = 0
@@ -139,16 +147,18 @@ class Game(gym.Env):
                     self.screen.blit(render_text, (DISPLAY_WIDTH / 2 - 10, 75))
                     pygame.display.update()
         elif mode=='rgb':
-            self.level = 1
+            if lvl_complete:
+                self.level -= 1
+
+            self.level %= 5
+            self.level += 1
             self.screen.fill((0, 0, 0))
             self.lvlsprites.draw(self.screen)
-        else:
-            self.level = 1
 
         return self.get_state()
 
     # https://www.gymlibrary.dev/api/core/#gym.Env.step
-    def step(self, action=None, mode='rgb'):
+    def step(self, action=None, mode='rgb', rewards=rewards):
         reward = 0
         if action == None:
             # Handle key events when player is playing
@@ -162,7 +172,8 @@ class Game(gym.Env):
                 direction = self.player.right()
             elif action in (pygame.K_UP, 2):
                 if self.shooting:
-                    reward -= 99
+
+                    reward += rewards['repeat-shot']
                 else:
                     self.shooting = True
                     self.laser = Laser(self.player.rect.centerx)
@@ -170,24 +181,21 @@ class Game(gym.Env):
                 if self.player.xspeed != 0:
                     self.player.stop()
             if self.player.bad_move(direction):
-                reward -= 99
+                reward += rewards['invalid-move']
 
         # Discourage spending time
-        reward -= 0.001
+        reward += rewards['time-elapsed']
         gameover = False
         for ball in self.balls:
             if ball.rect.y + 100 > self.player.getY():
                 if pygame.sprite.collide_mask(self.player, ball):
                     self.shooting = False
                     gameover = True
-                    reward -= 99
+                    reward += rewards['game-over']
                     return self.get_state(), reward, gameover, {}
-
             if self.shooting:
-                self.laser.update()
                 if self.laser.collideobjects([ball]):
-                    # print("Laser pop.")
-                    reward += 0.25
+                    reward += rewards['pop-ball']
                     self.shooting = False
                     pop_result = ball.pop()
                     self.lvlsprites.remove(ball)
@@ -195,21 +203,20 @@ class Game(gym.Env):
                     if pop_result is not None:
                         self.lvlsprites.add(pop_result)
                         self.balls.add(pop_result)
-                elif self.laser.hitCeiling():
-                    reward -= 99
-                    self.shooting = False
 
             if pygame.sprite.collide_rect(ball, self.platform):
                 ball.bounceY()
+
             if ball.x < 0 or ball.x > DISPLAY_WIDTH - ball.width:
                 ball.bounceX()
-        # Level Complete
-        if not self.balls:
-            self.level += 1
-            reward += 99
-            self.reset(mode)
 
         # Update sprites
+        if self.shooting:
+            self.laser.update()
+            if self.laser.hitCeiling():
+                reward += rewards['hit-ceiling']
+                self.shooting = False
+
         self.lvlsprites.update()
         if mode == 'human':
             self.clock.tick(FPS)
@@ -226,14 +233,16 @@ class Game(gym.Env):
             self.lvlsprites.draw(self.screen)
             if self.shooting:
                 pygame.draw.rect(self.screen, Game.PINK, self.laser)
-                #self.screen.blit(self.laser.curr, self.laser.rect)
         elif mode == 'rgb':
             self.screen.fill((0, 0, 0))
             self.lvlsprites.draw(self.screen)
             if self.shooting:
                 pygame.draw.rect(self.screen, Game.PINK, self.laser)
-                #self.screen.blit(self.laser.curr, self.laser.rect)
-        
+
+        # Level Complete
+        if not self.balls:
+            self.level += 1
+            self.reset(mode, lvl_complete=True)
         info = {}
         # observation, reward, truncated, terminated, info
         return self.get_state(), reward, gameover, info
