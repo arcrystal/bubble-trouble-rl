@@ -13,7 +13,7 @@ import math
 
 # num frames for laser to reach ceiling
 FRAMES = math.ceil(DISPLAY_HEIGHT / math.floor(DISPLAY_HEIGHT * TIMESTEP)) + 1
-n_features = 80
+n_features = 50
 
 def build_model(n_features, num_actions=4):
     model = Sequential()
