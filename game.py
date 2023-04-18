@@ -79,8 +79,8 @@ class Game(gym.Env):
         self.shooting = False
         self.clock = pygame.time.Clock()
 
-    def get_state(self):
-        if False:
+    def get_state(self, type='dense'):
+        if type=='dense':
             x = (self.player.getX() + self.player.getWidth() / 2) / DISPLAY_WIDTH
             y = self.player.getY()
             features = [x, int(self.shooting)]
@@ -88,12 +88,15 @@ class Game(gym.Env):
                 features += ball.get_features(x, y)
             
             return features + [0]*(self.n_features-len(features))
-        else:
+        elif type=='conv':
             pixel_data = pygame.surfarray.array2d(self.screen)
             greyscale = np.dot(pixel_data[..., :3], [0.2989, 0.5870, 0.1140])
             resized_array = np.resize(greyscale, (42, 84))
             resized_array = np.expand_dims(resized_array, 2)
             return resized_array
+        else:
+            print("unknown model type")
+            exit()
 
     # https://www.gymlibrary.dev/api/core/#gym.Env.reset
     def reset(self, mode='rgb', countdown=False, lvl_complete=False):
