@@ -1,5 +1,6 @@
 import os
 import random
+import numpy as np
 
 FPS = float(os.environ.get('FPS'))
 DISPLAY_WIDTH = int(os.environ.get('DISPLAY_WIDTH')) # Default 890
@@ -56,6 +57,7 @@ class Game(gym.Env):
         # https://www.gymlibrary.dev/api/core/#gym.Env.observation_space
         # https://www.gymlibrary.dev/api/core/#gym.Env.action_space
         self.action_space = gym.spaces.Discrete(4)
+        self.observation_space = gym.spaces.Box(low=0., high=1., shape=(42,84), dtype=np.float32)
         self.init_render(training)
         self.model = model
         self.visualize = visualize
@@ -78,13 +80,20 @@ class Game(gym.Env):
         self.clock = pygame.time.Clock()
 
     def get_state(self):
-        x = (self.player.getX() + self.player.getWidth() / 2) / DISPLAY_WIDTH
-        y = self.player.getY()
-        features = [x, int(self.shooting)]
-        for ball in self.balls:
-            features += ball.get_features(x, y)
-        
-        return features + [0]*(self.n_features-len(features))
+        if False:
+            x = (self.player.getX() + self.player.getWidth() / 2) / DISPLAY_WIDTH
+            y = self.player.getY()
+            features = [x, int(self.shooting)]
+            for ball in self.balls:
+                features += ball.get_features(x, y)
+            
+            return features + [0]*(self.n_features-len(features))
+        else:
+            pixel_data = pygame.surfarray.array2d(self.screen)
+            greyscale = np.dot(pixel_data[..., :3], [0.2989, 0.5870, 0.1140])
+            resized_array = np.resize(greyscale, (42, 84))
+            resized_array = np.expand_dims(resized_array, 2)
+            return resized_array
 
     # https://www.gymlibrary.dev/api/core/#gym.Env.reset
     def reset(self, mode='rgb', countdown=False, lvl_complete=False):

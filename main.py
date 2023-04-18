@@ -1,8 +1,9 @@
 from game import Game, DISPLAY_HEIGHT, TIMESTEP
 
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense, Flatten
-from tensorflow.keras.optimizers import Adam
+from keras import Model
+from keras.models import Sequential
+from keras.layers import Dense, Flatten, TimeDistributed, Conv2D, LSTM, Input
+from keras.optimizers import Adam
 
 from rl.agents import DQNAgent
 from rl.memory import SequentialMemory
@@ -15,12 +16,31 @@ import math
 FRAMES = math.ceil(DISPLAY_HEIGHT / math.floor(DISPLAY_HEIGHT * TIMESTEP)) + 1
 n_features = 50
 
-def build_model(n_features, num_actions=4):
+def build_model(n_features, n_actions=4):
     model = Sequential()
     model.add(Flatten(input_shape=(FRAMES, n_features)))
     model.add(Dense(256, activation="relu"))
     model.add(Dense(64, activation="relu"))
-    model.add(Dense(num_actions, activation='linear'))
+    model.add(Dense(n_actions, activation='linear'))
+    return model
+
+def build_drqn(n_actions):
+    in_frame = Input(shape=(None, 42, 84, 1))
+
+    conv1 = TimeDistributed(Conv2D(32, (8, 8), strides=4, activation='relu'))(in_frame)
+    conv2 = TimeDistributed(Conv2D(64, (4, 4), strides=2, activation='relu'))(conv1)
+    conv3 = TimeDistributed(Conv2D(64, (3, 3), strides=1, activation='relu'))(conv2)
+
+    flatten = TimeDistributed(Flatten())(conv3)
+    lstm1 = LSTM(256, return_sequences=True)(flatten)
+    lstm2 = LSTM(256, return_sequences=False)(lstm1)
+    dense = Dense(n_actions, activation='softmax')(lstm2)
+    
+    model = Model(inputs=in_frame, outputs=dense)
+    model.compile(loss="categorical_crossentropy",
+                  optimizer='adam',
+                  metrics=["accuracy"]
+    )
     return model
 
 def build_agent(model, actions, n_warmups):
@@ -42,7 +62,7 @@ def build_agent(model, actions, n_warmups):
     return dqn
 
 def train(visualize, checkpoint, n_steps, n_warmups, outfile, alpha=1e-4):
-    model = build_model(n_features=n_features, num_actions=4)
+    model = build_drqn(n_actions=4)
     print(model.summary())
     env = Game(model=model, training=True, n_features=n_features)
     dqn = build_agent(model, 4, n_warmups)
@@ -53,7 +73,7 @@ def train(visualize, checkpoint, n_steps, n_warmups, outfile, alpha=1e-4):
     dqn.save_weights(f"Weights/{outfile}")
 
 def test(checkpoint, episode=1):
-    model = build_model(n_features=n_features, num_actions=4)
+    model = build_model(n_features=n_features, n_actions=4)
     dqn = build_agent(model, 4, 0)
     dqn.compile(Adam(learning_rate=1e-4))
     dqn.load_weights(checkpoint)
