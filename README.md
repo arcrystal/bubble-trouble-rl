@@ -1,4 +1,4 @@
-# falling-circles
+# bubble-trouble-rl
 ## Clone the repository
 
     $ git clone https://github.com/arcrystal/bubble-trouble-rl.git
