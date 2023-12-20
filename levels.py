@@ -1,47 +1,63 @@
-from ball import Ball
-from game import DISPLAY_WIDTH, DISPLAY_HEIGHT
-b1bounce = DISPLAY_WIDTH / 10
+import sys
 
-# Ball(x, y, xspeed, yspeed, xacceleration, ballsize, color)
+import pygame.display
+
+from ball import *
+
+RED = (255, 0, 0)
+YELLOW = (245, 237, 7)
+GREEN = (52, 145, 33)
+BLUE = (128, 206, 242)
+ORANGE = (237, 141, 45)
+PURPLE = (111, 38, 163)
+
 class Levels:
-    def __init__(self):
-        pass
+    def __init__(self, width, height, fps):
+        self.fps = fps
+        self.width = width
+        self.height = height
+        self.b1bounce = self.width / 10
 
     def get(self, lvl):
         if lvl == 1:
-            return [Ball(DISPLAY_WIDTH // 5, DISPLAY_HEIGHT // 4, 'right', 0, 0, 1, 'yellow')]
+            balls = [BallLevel2(self.width // 4, self.height // 4, self.width, self.height, BLUE, self.fps)]
         elif lvl == 2:
-            return [Ball(DISPLAY_WIDTH // 4, DISPLAY_HEIGHT // 4, 'right', 0, 0, 2, 'green')]
+            balls = [BallLevel3(self.width // 4, self.height // 4, self.width, self.height, GREEN, self.fps)]
         elif lvl == 3:
-            return [Ball(DISPLAY_WIDTH // 4, DISPLAY_HEIGHT // 4, 'right', 0, 0, 3, 'red')]
+            balls =  [BallLevel4(self.width // 4, self.height // 4, self.width, self.height, RED, self.fps)]
         elif lvl == 4:
-            return [Ball(DISPLAY_WIDTH // 4, DISPLAY_HEIGHT // 4, 'left', 0, 0, 2, 'orange'),
-                    Ball(3 * DISPLAY_WIDTH // 4, DISPLAY_HEIGHT // 4, 'right', 0, 0, 2, 'orange')]
+            balls =  [BallLevel3(self.width // 4, self.height // 4, self.width, self.height, ORANGE, self.fps),
+                    BallLevel3(3 * self.width // 4, self.height // 4, self.width, self.height, ORANGE, self.fps)]
         elif lvl == 5:
-            return [Ball(DISPLAY_WIDTH // 3, DISPLAY_HEIGHT // 4, 0, 0, 0, 2, 'yellow'),
-                    Ball(2*DISPLAY_WIDTH // 3 - 10, DISPLAY_HEIGHT // 4, 0, 0, 0, 3, 'green')]
+            balls =  [BallLevel3(self.width // 3, self.height // 4, self.width, self.height, YELLOW, self.fps),
+                    BallLevel4(2*self.width // 3 - 10, self.height // 4, self.width, self.height, GREEN, self.fps)]
         elif lvl == 6:
-            return [Ball(  DISPLAY_WIDTH // 7, 394, b1bounce, 0, 0, 0, 'purple'),
-                    Ball(2*DISPLAY_WIDTH // 7, 394, b1bounce, 0, 0, 0, 'purple'),
-                    Ball(3*DISPLAY_WIDTH // 7, 394, b1bounce, 0, 0, 0, 'purple'),
-                    Ball(4*DISPLAY_WIDTH // 7, 394, b1bounce, 0, 0, 0, 'purple'),
-                    Ball(5*DISPLAY_WIDTH // 7, 394, b1bounce, 0, 0, 0, 'purple'),
-                    Ball(6*DISPLAY_WIDTH // 7, 394, b1bounce, 0, 0, 0, 'purple')]
+            balls =  [BallLevel1(  self.width // 7, 394, self.width, self.height, PURPLE, self.fps),
+                    BallLevel1(2*self.width // 7, 394, self.width, self.height, PURPLE, self.fps),
+                    BallLevel1(3*self.width // 7, 394, self.width, self.height, PURPLE, self.fps),
+                    BallLevel1(4*self.width // 7, 394, self.width, self.height, PURPLE, self.fps),
+                    BallLevel1(5*self.width // 7, 394, self.width, self.height, PURPLE, self.fps),
+                    BallLevel1(6*self.width // 7, 394, self.width, self.height, PURPLE, self.fps)]
         elif lvl == 7:
-            return [Ball(  DISPLAY_WIDTH // 7 - 40, 394,  b1bounce, 0, 0, 0, 'red'),
-                    Ball(  DISPLAY_WIDTH // 7 - 20, 394,  b1bounce, 0, 0, 0, 'orange'),
-                    Ball(  DISPLAY_WIDTH // 7,      394,  b1bounce, 0, 0, 0, 'yellow'),
-                    Ball(2*DISPLAY_WIDTH // 7 - 40, 394,  b1bounce, 0, 0, 0, 'red'),
-                    Ball(2*DISPLAY_WIDTH // 7 - 20, 394,  b1bounce, 0, 0, 0, 'orange'),
-                    Ball(2*DISPLAY_WIDTH // 7     , 394,  b1bounce, 0, 0, 0, 'red'),
-                    Ball(5*DISPLAY_WIDTH // 7 + 10,  394, -b1bounce, 0, 0, 0, 'red'),
-                    Ball(5*DISPLAY_WIDTH // 7 + 30, 394, -b1bounce, 0, 0, 0, 'orange'),
-                    Ball(5*DISPLAY_WIDTH // 7 + 50, 394, -b1bounce, 0, 0, 0, 'red'),
-                    Ball(6*DISPLAY_WIDTH // 7 + 10    , 394, -b1bounce, 0, 0, 0, 'yellow'),
-                    Ball(6*DISPLAY_WIDTH // 7 + 30, 394, -b1bounce, 0, 0, 0, 'orange'),
-                    Ball(6*DISPLAY_WIDTH // 7 + 50, 394, -b1bounce, 0, 0, 0, 'red')]
+            balls =  [BallLevel1(  self.width // 7 - 40, 394,  self.width, self.height, RED, self.fps),
+                    BallLevel1(  self.width // 7 - 20, 394,  self.width, self.height, YELLOW, self.fps),
+                    BallLevel1(  self.width // 7,      394,  self.width, self.height, ORANGE, self.fps),
+                    BallLevel1(2*self.width // 7 - 40, 394,  self.width, self.height, RED, self.fps),
+                    BallLevel1(2*self.width // 7 - 20, 394,  self.width, self.height, YELLOW, self.fps),
+                    BallLevel1(2*self.width // 7,      394,  self.width, self.height, ORANGE, self.fps),
+                    BallLevel1(5*self.width // 7 + 10, 394,  self.width, self.height, RED, self.fps),
+                    BallLevel1(5*self.width // 7 + 30, 394,  self.width, self.height, YELLOW, self.fps),
+                    BallLevel1(5*self.width // 7 + 50, 394,  self.width, self.height, ORANGE, self.fps),
+                    BallLevel1(6*self.width // 7 + 10, 394,  self.width, self.height, RED, self.fps),
+                    BallLevel1(6*self.width // 7 + 30, 394,  self.width, self.height, YELLOW, self.fps),
+                    BallLevel1(6*self.width // 7 + 50, 394,  self.width, self.height, ORANGE, self.fps)]
         elif lvl == 8:
-            return [Ball(DISPLAY_WIDTH // 2, DISPLAY_HEIGHT // 4, 0, 0, 0, 4, 'red')]
+            balls =  [BallLevel5(self.width // 2, self.height // 4, self.width, self.height, RED, self.fps)]
         else:
-            raise ValueError("Invalid level.")
-        
+            sys.exit(0)
+
+        group = pygame.sprite.Group()
+        for ball in balls:
+            group.add(ball)
+
+        return group

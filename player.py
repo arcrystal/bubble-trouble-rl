@@ -1,126 +1,52 @@
 import pygame
-from game import TIMESTEP, DISPLAY_WIDTH, DISPLAY_HEIGHT, GAMESTATE, RATIOS
 
+from direction import Direction
 
-sprites = {
-        "still":pygame.image.load("Sprites/person_still_sm.png"),
-        "shoot":pygame.image.load("Sprites/person_shoot_sm.png"),
-        "left":pygame.image.load("Sprites/person_left_sm.png"),
-        "right":pygame.image.load("Sprites/person_right_sm.png")}
-
-resize = DISPLAY_WIDTH / 890
-for key, val in sprites.items():
-    sprites[key] = pygame.transform.scale(val, (val.get_rect().width * resize, val.get_rect().height * resize))
 
 class Player(pygame.sprite.Sprite):
-    """
-    Player object for ball breaker Game().
-    """
-    RED = (255, 0, 0)
-    SPEED = DISPLAY_WIDTH / 5
-    SPRITES = sprites
-    
-    def __init__(self):
-        super().__init__() # equivalent to pygame.sprite.Sprite.__init__(self)
-        self.x = DISPLAY_WIDTH / 2
-        self.y = DISPLAY_HEIGHT
-        self.xspeed = 0
-        self.yspeed = 0
-        self.yacceleration = 0
-        self.image = Player.SPRITES['still']
+    def __init__(self, x, y, display_width):
+        super().__init__()
+        self.laser = None
+        self.display_width = display_width
+        self.left_sprite = self.load("Sprites/person_left_sm.png")
+        self.still_sprite = self.load("Sprites/person_still_sm.png")
+        self.right_sprite = self.load("Sprites/person_right_sm.png")
+        self.shoot_sprite = self.load("Sprites/person_shoot_sm.png")
+        self.image = self.still_sprite
         self.rect = self.image.get_rect()
-        self.y -= self.image.get_height()
-        self.rect.x = self.x
-        self.rect.y = self.y
-        self.height = self.rect.height
-        self.width = self.rect.width
+        self.rect.midbottom = (x, y)
+        self.speed = display_width / 250
+        self.direction = Direction.STILL
 
-        self.gsY = round(self.y / RATIOS['y'])
-        self.gsX = round(self.x / RATIOS['x'])
-        self.gsH = round(self.height / RATIOS['y'])
-        self.gsW = round(self.width / RATIOS['x'])
+    def load(self, filename):
+        image = pygame.image.load(filename).convert_alpha()
+        return pygame.transform.scale(image, (self.display_width / 40, self.display_width / 16))
 
-        GAMESTATE[self.gsY:, self.gsX:self.gsX+self.gsH, 0] = 1
+    def step(self, direction):
+        if not isinstance(direction, Direction):
+            raise ValueError("The parameter of step() must be a Direction")
 
-    def getWidth(self):
-        return self.width
+        self.update_image(direction)
+        self.direction = direction
+        if direction == Direction.LEFT:
+            self.rect.x -= self.speed
+            self.rect.x = max(0, self.rect.x)
+        elif direction == Direction.RIGHT:
+            self.rect.x += self.speed
+            self.rect.x = min(self.display_width - self.rect.width, self.rect.x)
+        elif direction == Direction.SHOOT:
+            if not self.laser.active:
+                self.laser.fire(self.rect.centerx, self.rect.top)
 
-    def getX(self):
-        return self.rect.centerx
+    def update_image(self, direction):
+        if direction == Direction.LEFT:
+            self.image = self.left_sprite
+        elif direction == Direction.RIGHT:
+            self.image = self.right_sprite
+        elif direction == Direction.SHOOT:
+            self.image = self.shoot_sprite
+        elif direction == Direction.STILL:
+            self.image = self.still_sprite
 
-    def getY(self):
-        return self.y
-
-    def setY(self, y):
-        self.y = y
-
-    def setX(self, x):
-        self.x = x
-    
-    def stop(self):
-        # print("Stop moving.")
-        self.xspeed = 0
-        self.image = Player.SPRITES['still']
-        self.rect = self.image.get_rect()
-        self.rect.x = self.x
-        self.rect.y = self.y
-
-    def left(self):
-        # print("Left.")
-        self.xspeed = -Player.SPEED
-        self.image = Player.SPRITES['left']
-        self.rect = self.image.get_rect()
-        self.rect.x = self.x
-        self.rect.y = self.y
-        return 'left'
-
-    def right(self):
-        # print("Right.")
-        self.xspeed = Player.SPEED
-        self.image = Player.SPRITES['right']
-        self.rect = self.image.get_rect()
-        self.rect.x = self.x
-        self.rect.y = self.y
-        return 'right'
-
-    def bad_move(self, direction):
-        if (self.x > DISPLAY_WIDTH - self.width and 
-            self.xspeed > 0 and 
-            direction=='right'):
-            return True
-        if (self.x < 0 and
-            self.xspeed < 0 and
-            direction=='left'):
-            return True
-        
-        return False
-
-    def update(self):
-        """
-        Overides pygame.sprite.Sprite.update()
-        Applied when Group.update() is called.
-
-        Args:
-            t (float): the timestep of the update.
-        Returns:
-            None.
-        Raises:
-            None.
-        """
-        if self.x > DISPLAY_WIDTH - self.width and self.xspeed > 0:
-            self.x = DISPLAY_WIDTH - self.width
-            self.rect.x = self.x
-            self.stop()
-            return
-        elif self.x < 0 and self.xspeed < 0:
-            self.x = 0
-            self.rect.x = self.x
-            self.stop()
-            return
-
-        GAMESTATE[self.gsY:, self.gsX:self.gsX+self.gsH, 0] = 0
-        self.x += self.xspeed * TIMESTEP
-        self.gsX = round(self.x / RATIOS['x'])
-        self.rect.x = self.x
-        GAMESTATE[self.gsY:, self.gsX:self.gsX+self.gsH, 0] = 1
-
+    def draw(self, screen):
+        screen.blit(self.image, self.rect)

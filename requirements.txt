@@ -1,5 +1,0 @@
-pygame
-numpy
-gym
-tensorflow-macos
-tensorflow-metal
