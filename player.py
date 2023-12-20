@@ -1,5 +1,5 @@
 import pygame
-from game import TIMESTEP, DISPLAY_WIDTH, DISPLAY_HEIGHT
+from game import TIMESTEP, DISPLAY_WIDTH, DISPLAY_HEIGHT, GAMESTATE, RATIOS
 
 
 sprites = {
@@ -11,7 +11,6 @@ sprites = {
 resize = DISPLAY_WIDTH / 890
 for key, val in sprites.items():
     sprites[key] = pygame.transform.scale(val, (val.get_rect().width * resize, val.get_rect().height * resize))
-
 
 class Player(pygame.sprite.Sprite):
     """
@@ -33,7 +32,15 @@ class Player(pygame.sprite.Sprite):
         self.y -= self.image.get_height()
         self.rect.x = self.x
         self.rect.y = self.y
+        self.height = self.rect.height
         self.width = self.rect.width
+
+        self.gsY = round(self.y / RATIOS['y'])
+        self.gsX = round(self.x / RATIOS['x'])
+        self.gsH = round(self.height / RATIOS['y'])
+        self.gsW = round(self.width / RATIOS['x'])
+
+        GAMESTATE[self.gsY:, self.gsX:self.gsX+self.gsH, 0] = 1
 
     def getWidth(self):
         return self.width
@@ -111,5 +118,9 @@ class Player(pygame.sprite.Sprite):
             self.stop()
             return
 
+        GAMESTATE[self.gsY:, self.gsX:self.gsX+self.gsH, 0] = 0
         self.x += self.xspeed * TIMESTEP
+        self.gsX = round(self.x / RATIOS['x'])
         self.rect.x = self.x
+        GAMESTATE[self.gsY:, self.gsX:self.gsX+self.gsH, 0] = 1
+

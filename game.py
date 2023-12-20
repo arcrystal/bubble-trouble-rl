@@ -1,11 +1,17 @@
+
 import os
 import random
+
+import gym
 import numpy as np
+import math
 
 FPS = float(os.environ.get('FPS'))
 DISPLAY_WIDTH = int(os.environ.get('DISPLAY_WIDTH')) # Default 890
 TIMESTEP = 1 / FPS
 DISPLAY_HEIGHT = int(DISPLAY_WIDTH * 0.5337) # Default 475
+GAMESTATE = np.zeros((16,32,3), np.int8)
+RATIOS = {'y':DISPLAY_HEIGHT/16, 'x':DISPLAY_WIDTH/32}
 
 import pygame
 from player import Player
@@ -19,16 +25,6 @@ VAL_TO_ACTION = {
     2: pygame.K_UP,
     3: None}
 
-rewards = {
-        'time-elapsed':  -0.01,
-        'repeat-shot' :  -1,
-        'invalid-move':  -1,
-        'game-over'   :  -1,
-        'pop-ball'    :   1,
-        'hit-ceiling' :  -1,
-    }
-
-import gym
 
 class Game(gym.Env):
     """
@@ -38,30 +34,33 @@ class Game(gym.Env):
     BLACK  = (  0,   0,   0)
     RED    = (255,   0,   0)
     GREEN  = (  0, 255,   0)
-    BLUE   = (  0,   0, 255)
-    ORANGE = (255, 255,   0)
-    YELLOW = (  0, 255, 255)
+    BLUE  = (  0,   0, 255)
     PINK   = (255, 192, 203)
+    # Take out two 0's
     LVL_TIME = {
-        1: 20000,
-        2: 35000,
-        3: 50000,
-        4: 65000,
-        5: 80000,
-        6: 90000,
-        7: 100000,
-        8: 100000}
+        1: 2000000,
+        2: 3500000, 
+        3: 5000000,
+        4: 6500000,
+        5: 8000000,
+        6: 9000000,
+        7: 10000000,
+        8: 10000000}
     LEVELS = Levels()
+    
 
-    def __init__(self, training=True, model=None, visualize=True, n_features=80):
+    def __init__(self, training=True, model_type='dense', model=None, visualize=True, n_features=43, frames=None):
         # https://www.gymlibrary.dev/api/core/#gym.Env.observation_space
         # https://www.gymlibrary.dev/api/core/#gym.Env.action_space
         self.action_space = gym.spaces.Discrete(4)
-        self.observation_space = gym.spaces.Box(low=0., high=1., shape=(42,84), dtype=np.float32)
         self.init_render(training)
+        self.model_type = model_type
         self.model = model
         self.visualize = visualize
         self.n_features = n_features
+        self.steps = 0
+        self.frames = frames
+        self.action = [False, False, False]
 
     def init_render(self, training):
         pygame.init()
@@ -78,25 +77,37 @@ class Game(gym.Env):
         self.level = 1
         self.shooting = False
         self.clock = pygame.time.Clock()
-
+    
     def get_state(self, type='dense'):
         if type=='dense':
             x = (self.player.getX() + self.player.getWidth() / 2) / DISPLAY_WIDTH
-            y = self.player.getY()
             features = [x, int(self.shooting)]
             for ball in self.balls:
-                features += ball.get_features(x, y)
+                features += ball.get_features()
             
             return features + [0]*(self.n_features-len(features))
         elif type=='conv':
             pixel_data = pygame.surfarray.array2d(self.screen)
             greyscale = np.dot(pixel_data[..., :3], [0.2989, 0.5870, 0.1140])
-            resized_array = np.resize(greyscale, (42, 84))
-            resized_array = np.expand_dims(resized_array, 2)
+            resized_array = np.resize(greyscale, (16, 32))
             return resized_array
         else:
             print("unknown model type")
             exit()
+        
+        if self.model_type == 'conv':
+            pixel_data = pygame.surfarray.array2d(self.screen)
+            greyscale = np.dot(pixel_data[..., :3], [0.2989, 0.5870, 0.1140])
+            resized_array = np.resize(greyscale, (42, 84))
+            return resized_array
+        
+    def mirror(self, state):
+        if self.model_type == 'dense':
+            mirr = [1-feature for feature in state]
+            mirr[2] = state[2]
+            return mirr
+        elif self.model_type == 'conv':
+            return np.flip(GAMESTATE, axis=1)
 
     # https://www.gymlibrary.dev/api/core/#gym.Env.reset
     def reset(self, mode='rgb', countdown=False, lvl_complete=False):
@@ -129,7 +140,6 @@ class Game(gym.Env):
             self.player.SPRITES[key] = sprite.convert_alpha()
         self.platform.image = self.platform.image.convert_alpha()
         
-
         # Create sprite groups and add sprites
         self.balls = pygame.sprite.Group()
         self.lvlsprites = pygame.sprite.Group()
@@ -170,8 +180,25 @@ class Game(gym.Env):
         return self.get_state()
 
     # https://www.gymlibrary.dev/api/core/#gym.Env.step
-    def step(self, action=None, mode='rgb', rewards=rewards):
-        reward = 0
+    def step(self, action=None, mode='rgb'):
+        """
+        RL Agent's step function.
+
+        Args:
+            action (int): pygame global corresponding an action the agent will take.
+            mode (str): render mode
+        Returns:
+            observation: the current state of the environment.
+            reward: the reward of taking a certain action in the current state
+            gameover (bool): if the player loses
+        Raises:
+            None.
+
+        Notes:
+            The reward function has trouble telling the network how to behave and needs work.
+        """
+        reward = -0.001
+        self.steps += 1
         if action == None:
             # Handle key events when player is playing
             self.handle_keyevents()
@@ -184,8 +211,7 @@ class Game(gym.Env):
                 direction = self.player.right()
             elif action in (pygame.K_UP, 2):
                 if self.shooting:
-
-                    reward += rewards['repeat-shot']
+                    pass
                 else:
                     self.shooting = True
                     self.laser = Laser(self.player.rect.centerx)
@@ -193,22 +219,22 @@ class Game(gym.Env):
                 if self.player.xspeed != 0:
                     self.player.stop()
             if self.player.bad_move(direction):
-                reward += rewards['invalid-move']
+                pass
 
         # Discourage spending time
-        reward += rewards['time-elapsed']
         gameover = False
         for ball in self.balls:
             if ball.rect.y + 100 > self.player.getY():
                 if pygame.sprite.collide_mask(self.player, ball):
                     self.shooting = False
                     gameover = True
-                    reward += rewards['game-over']
-                    return self.get_state(), reward, gameover, {}
+                    reward = -1
+                    info = {'action':action}
+                    return self.get_state(), reward, gameover, info
             if self.shooting:
                 if self.laser.collideobjects([ball]):
-                    reward += rewards['pop-ball']
                     self.shooting = False
+                    self.laser.hitBall()
                     pop_result = ball.pop()
                     self.lvlsprites.remove(ball)
                     self.balls.remove(ball)
@@ -226,7 +252,6 @@ class Game(gym.Env):
         if self.shooting:
             self.laser.update()
             if self.laser.hitCeiling():
-                reward += rewards['hit-ceiling']
                 self.shooting = False
 
         self.lvlsprites.update()
@@ -253,13 +278,12 @@ class Game(gym.Env):
 
         # Level Complete
         if not self.balls:
+            reward = 1
             self.level += 1
             self.reset(mode, lvl_complete=True)
-        info = {}
-        # observation, reward, truncated, terminated, info
+        info = {'action':action}
         return self.get_state(), reward, gameover, info
 
-    # https://www.gymlibrary.dev/api/core/#gym.Env.render
     def render(self, mode='rgb'):
         if mode=='human':
             pygame.display.update()
@@ -276,23 +300,27 @@ class Game(gym.Env):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 exit()
-
-            if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_LEFT:
-                    self.player.left()
-                if event.key == pygame.K_RIGHT:
-                    self.player.right()
-                if event.key == pygame.K_UP and not self.shooting:
-                    self.shooting = True
-                    self.laser = Laser(self.player.rect.centerx)
-                if event.key == pygame.K_i:
-                    pygame.image.save(self.screen, "screenshot.png")
-
-            if event.type == pygame.KEYUP:
+            elif event.type == pygame.KEYUP:
                 if event.key == pygame.K_LEFT and self.player.xspeed < 0:
                     self.player.stop()
+                    self.action[0] = False
                 if event.key == pygame.K_RIGHT and self.player.xspeed > 0:
                     self.player.stop()
+                    self.action[1] = False
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_LEFT:
+                    self.player.left()
+                    self.action[0] = True
+                elif event.key == pygame.K_RIGHT:
+                    self.player.right()
+                    self.action[1] = True
+                elif event.key == pygame.K_UP:
+                    if not self.shooting:
+                        self.action[2] = True
+                        self.shooting = True
+                        self.laser = Laser(self.player.rect.centerx)
+                elif event.key == pygame.K_i:
+                    pygame.image.save(self.screen, "screenshot.png")
 
     def draw_timer(self, timeleft):
         pygame.draw.line(
@@ -301,48 +329,11 @@ class Game(gym.Env):
             (timeleft, DISPLAY_HEIGHT+27),
             10)
 
-    # def collide(self, laser, ball):
-    #     if laser.rect.x < ball.x + ball.image.get_width() \
-    #         and laser.rect.x + laser.image.get_width() < ball.rect.x:
-    #         if laser.rect.y < ball.rect.y + ball.image.get_height():
-    #             return True
+    def repeat(self, X):
+        assert len(X) >= self.frames, "not enough training examples"
+        return [X[i-self.frames:i] for i in range(self.frames, len(X))]
 
-    #     return False
-
-    def policy(self, observation, mode='train'):
-        """
-        RL Agent's policy for mapping an observation to an action.
-
-        Args:
-            observation: the current state of the environment.
-        Returns:
-            action (int): pygame global corresponding an action the agent will take.
-        Raises:
-            None.
-
-        Notes:
-        ----------------------
-        VAL_TO_ACTION = {
-            0: pygame.K_LEFT,
-            1: pygame.K_RIGHT,
-            2: pygame.K_UP,
-            3: None
-        }
-        """
-        if mode == 'train':
-            if random.random() > 0.99 or self.model==None:
-                action = VAL_TO_ACTION[self.action_space.sample()]
-                while self.shooting and action == 2:
-                    action = VAL_TO_ACTION[self.action_space.sample()]                
-            else:
-                while self.shooting and action == 2:
-                    action = self.model.predict(observation)
-
-            return action
-        
-        return None
-
-    def play(self, mode='rgb', num_trials=2):
+    def play(self, mode='rgb', num_trials=1, save_data=False, model=None):
         """
         Highest level class method for playing or simulating the pygame.
 
@@ -353,16 +344,108 @@ class Game(gym.Env):
             None.
         Raises:
             None.
+        Notes:
+            VAL_TO_ACTION = {
+                0: pygame.K_LEFT,
+                1: pygame.K_RIGHT,
+                2: pygame.K_UP,
+                3: None
+            }
         """
+        FRAMES = math.ceil(DISPLAY_HEIGHT / math.floor(DISPLAY_HEIGHT * TIMESTEP)) + 1
+        n_features = 43
         self.init_render(False)
+        if save_data or model:
+            observations = []
+            observations_mirror = []
+            actions = []
+            actions_mirror = []
         for _ in range(num_trials):
             gameover = False
             observation = self.reset(mode)
+            steps = 0
             while not gameover:
-                action = self.policy(observation, mode)
-                observation, _, gameover, _ = self.step(action, mode)
+                steps += 1
+                if model and steps > FRAMES:
+                    print("Test")
+                    in_frames = np.array(observations[-FRAMES:]).reshape(1, FRAMES, n_features)
+                    action = model.predict(in_frames).argmax()
+                else:
+                    action = None
+                obs, reward, gameover, info = self.step(action=action, mode=mode)
+                if save_data or model:
+                    observations.append(obs)
+                    observations_mirror.append(self.mirror(obs))
+                    if any(self.action):
+                        a = self.action.index(True)
+                    else:
+                        a = 3
+
+                    actions.append(a)
+                    if a==0:
+                        actions_mirror.append(1)
+                    elif a==1:
+                        actions_mirror.append(0)
+                    elif a==2:
+                        actions_mirror.append(a)
+                        self.action[2] = False
+                    elif a==3:
+                        actions_mirror.append(a)                    
+                self.render(mode)
+            self.reset(mode)
+
+        self.close()
+        pygame.display.quit()
+
+        if save_data:
+            cutoff = None
+            while not isinstance(cutoff, float):
+                try:
+                    # cutoff = float(input("Input proportion of gameplay to use for training (float): "))
+                    cutoff = 0.9
+                except ValueError:
+                    pass
+
+            cutoff = int(len(observations)*cutoff)
+            # Yreg = actions[self.frames:cutoff]
+            # Ymirror = actions_mirror[self.frames:cutoff]
+            # Y = np.array(Yreg+Ymirror)
+            Y = actions[self.frames:cutoff]
+            try:
+                # Xreg = np.array(self.repeat(observations[:cutoff]))
+                # Xmirror = np.array(self.repeat(observations_mirror[:cutoff]))
+                # X = np.concatenate([np.array(Xreg), np.array(Xmirror)], axis=0)
+                X = np.array(self.repeat(observations[:cutoff]))
+            except AssertionError:
+                print("No training performed.")
+                return
+        
+            Y = to_categorical(Y)
+            np.save('X.npy', X)
+            np.save('Y.npy', Y)
+
+        return
+
+    def test(self, mode='rgb', num_trials=1):
+        self.init_render(False)
+        for _ in range(num_trials):
+            gameover = False
+            obs = self.reset(mode)
+            obs_multi = np.zeros((self.frames, self.n_features))
+            step = 0
+            while not gameover:
+                if step<self.frames:
+                    obs_multi[step] = np.array(obs)
+                    action = random.randint(0,3)
+                    step += 1
+                else:
+                    np.roll(obs_multi, -1, axis=1)
+                    obs_multi[-1] = obs
+                    input = obs_multi.reshape((1,)+obs_multi.shape)
+                    action = self.model.predict(input).argmax()
+                obs, reward, gameover, info = self.step(action=action, mode=mode)
                 self.render(mode)
             
             self.reset(mode)
-                        
+        
         self.close()

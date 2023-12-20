@@ -1,7 +1,6 @@
 import pygame
-from game import TIMESTEP, DISPLAY_WIDTH, DISPLAY_HEIGHT, FPS
+from game import TIMESTEP, DISPLAY_WIDTH, DISPLAY_HEIGHT, GAMESTATE, RATIOS
 
-import numpy as np
 
 YACC = [
     # DISPLAY HEIGHT --> ballY == 229
@@ -85,31 +84,18 @@ class Ball(pygame.sprite.Sprite):
         self.width = self.rect.width
         self.height = self.rect.height
 
-        #self.pixels = np.array((self.size, self.size))
-        self.pixels = np.zeros((self.size, self.size), dtype=int)
-        ci, cj = int(self.size/2), int(self.size/2)
-        cr = int(self.size/2)
-        I, J = np.meshgrid(np.arange(self.size),np.arange(self.size))
-        dist = np.sqrt((I - ci) ** 2 + (J - cj) ** 2)
-        self.pixels[np.where(dist < cr)] = ballsize
+        self.gsY = round(self.y / RATIOS['y'])
+        self.gsX = round(self.x / RATIOS['x'])
+        self.gsH = round(self.height / RATIOS['y'])
+        self.gsW = round(self.width / RATIOS['x'])
 
-    def get_features(self, px, py):
-        if self.xspeed > 0:
-            xspeed = 1
-        else:
-            xspeed = -1
-        if self.yspeed > 0:
-            yspeed = 1
-        else:
-            yspeed = -1
-        return [(self.x+self.width/2 - px) / DISPLAY_WIDTH,
-                max(py - (self.y + self.height), 0) / DISPLAY_HEIGHT,
-                xspeed,
-                yspeed]
-        
-    def printBallArray(self):
-        for row in self.pixels:
-            print(" ".join(list(row.astype(str))))
+        GAMESTATE[self.gsY:self.gsY+self.gsH, self.gsX:self.gsX+self.gsH, 1] = 1
+
+    def get_features(self):
+        return [self.x / DISPLAY_WIDTH,
+                (self.x + self.width) / DISPLAY_WIDTH,
+                self.y / DISPLAY_HEIGHT,
+                (self.y + self.height) / DISPLAY_HEIGHT]
         
     def getSize(self):
         return self.ballsize
@@ -135,22 +121,18 @@ class Ball(pygame.sprite.Sprite):
         Raises:
             None.
         """
-        # if self.yspeed < 10 and self.yspeed > -10:
-        #     print("H", round(Ball.BOUNCE_HEIGHT[self.ballsize]), " :  ballY", round(self.y))
         # Update position
         self.x += self.xspeed * TIMESTEP
         # y = y0 + v0yt + ½at2
-        y0 = self.y
         self.y += self.yspeed * TIMESTEP + 0.5 * YACC[self.ballsize] * TIMESTEP ** 2
         
         if self.y < 0:
+            GAMESTATE[self.gsY:self.gsY+self.gsH, self.gsX:self.gsX+self.gsH, 1] = 0
             print("Ceiling pop!")
             self.kill()
             return
         
         # Update speed
-        
-
         self.xspeed += self.xacceleration * TIMESTEP
         # vy2	 = v0y2 − 2g(y − y0)
         self.yspeed += YACC[self.ballsize] * TIMESTEP
@@ -158,6 +140,12 @@ class Ball(pygame.sprite.Sprite):
         # Update rect dimensions
         self.rect.x = self.x
         self.rect.y = self.y
+
+        # Update Gamestate
+        GAMESTATE[self.gsY:self.gsY+self.gsH, self.gsX:self.gsX+self.gsH, 1] = 0
+        self.gsY = round(self.y / RATIOS['y'])
+        self.gsX = round(self.x / RATIOS['x'])
+        GAMESTATE[self.gsY:self.gsY+self.gsH, self.gsX:self.gsX+self.gsH, 1] = 1
 
     def pop(self):
         """
@@ -170,6 +158,7 @@ class Ball(pygame.sprite.Sprite):
         Raises:
             None.
         """
+        GAMESTATE[self.gsY:self.gsY+self.gsH, self.gsX:self.gsX+self.gsH, 1] = 0
         if self.ballsize == 0:
             return
         else:
