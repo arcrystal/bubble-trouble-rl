@@ -1,4 +1,3 @@
-
 import ray
 from ray import air, tune
 from ray.tune import TuneConfig
@@ -44,8 +43,8 @@ def tune_model(tune_iters):
         .training(
             model={
                 "use_lstm": True,
-                "max_seq_len":256,
-                #"max_seq_len": tune.grid_search([16, 32, 64, 128, 256]),
+                "max_seq_len": 256,
+                # "max_seq_len": tune.grid_search([16, 32, 64, 128, 256]),
                 "lstm_use_prev_reward": True,
                 "lstm_use_prev_action": True,
             },
@@ -72,22 +71,21 @@ def tune_model(tune_iters):
         tune_config=tune_config
     )
     results = tuner.fit()
-    config = results.get_best_result().config
-    return config
+    return results.get_best_result().config
 
 
 def train_model(train_iters, best_config, print_every=1):
     name = "lstm_ppo"
     version_num = sum(name in file for file in os.listdir("Results/")) + 1
     out_path = f"Results/{name}_v{version_num}"
-    algo = PPO(config=best_config)
+    ppo = PPO(config=best_config)
     start = time.time()
     episode_reward_means = []
     for i in range(train_iters):
-        result = algo.train()
+        result = ppo.train()
         episode_reward_means.append(result['episode_reward_mean'])
         if i % print_every == 0:
-            algo.save(out_path)
+            ppo.save(out_path)
             print(f"\n___________\nEpisode {i}:")
             print(f'Mean reward:', round(result['episode_reward_mean'], 4))
             print(f'Runtime    : ', round(time.time() - start, 4) / print_every)
@@ -100,7 +98,8 @@ def train_model(train_iters, best_config, print_every=1):
 
         f.close()
 
-    return algo
+    return ppo
+
 
 def plot(filename="rewards.txt"):
     with open(filename, 'r') as f:
@@ -125,9 +124,9 @@ def simulate_model(algo):
     env = Game({'render_mode': 'human', 'fps': 120})
     observation, info = env.reset()
     cumulative_reward = 0
-    state = [np.zeros(256, dtype=np.float32) for _ in range(2)]
+    state = algo.get_state()
     while True:
-        action, rnn_state, _ = algo.compute_single_action(observation)
+        action, rnn_state, _ = algo.compute_single_action(observation, state=state)
         observation, reward, terminated, truncated, _ = env.step(action)
         state = rnn_state
         if terminated or truncated:
@@ -137,11 +136,12 @@ def simulate_model(algo):
 
     print(f"Cumulative reward: {cumulative_reward}")
 
+
 if __name__ == "__main__":
     args = get_args()
     ray.init()
     config = tune_model(args.tune_iters)
-    algo = train_model(args.train_iters, config)
+    ppo_algo = train_model(args.train_iters, config)
     plot()
     # ppo_config = (
     #     PPOConfig()
@@ -157,7 +157,8 @@ if __name__ == "__main__":
     #     )
     # )
     # algo = PPO(config=ppo_config)
-    # ckpt = "/Users/acrystal/Desktop/Coding/bubble-trouble-rl/Results/lstm_ppo_v5/checkpoint_000500"
+    # project_dir = "/Users/acrystal/Desktop/Coding/bubble-trouble-rl/"
+    # ckpt = project_dir + "Results/lstm_ppo_v5/checkpoint_000500"
     # algo.restore(ckpt)
-    simulate_model(algo)
+    simulate_model(ppo_algo)
     ray.shutdown()
