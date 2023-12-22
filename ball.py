@@ -1,4 +1,3 @@
-import pygame
 
 from AbstractBall import AbstractBall
 

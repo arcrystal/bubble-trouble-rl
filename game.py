@@ -2,6 +2,7 @@ import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
 import pygame
+from collections import OrderedDict
 
 from direction import Direction
 from laser import Laser
@@ -22,7 +23,7 @@ class Game(gym.Env):
             'hit_ball': 0.0,
             'pop_ball': 0.0,
             'finish_level': 0.0,
-            'game_over': 0.0,
+            'game_over': -0.0,
             'distance_from_center': 0.0
         })
         self.window = None
@@ -45,13 +46,12 @@ class Game(gym.Env):
 
         self.action_space = gym.spaces.Discrete(4)
         self.observation_space = spaces.Dict({
-            "player_position": spaces.Discrete(64 + 1),  # Game width is 64
-            "laser_state": spaces.Discrete(2),
+            "ball_sizes": spaces.MultiDiscrete([5] * 16),  # 5 size categories, max 16 balls
+            "ball_X": spaces.MultiDiscrete([64 + 1] * 16),
+            "ball_Y": spaces.MultiDiscrete([48 + 1] * 16),
             "laser_position": spaces.Discrete(48 + 1),  # Game height is 48
-            "ball_positions": spaces.Box(low=0, high=max(64 + 1, 48 + 1), shape=(16, 2),
-                                         dtype=np.int8),
-            # Max 16 balls, positions within game dimensions
-            "ball_sizes": spaces.MultiDiscrete([5] * 16)  # 5 size categories, max 16 balls
+            "laser_state": spaces.Discrete(2),
+            "player_position": spaces.Discrete(64 + 1)  # Game width is 64
         })
 
         self._action_to_direction = {
@@ -109,11 +109,28 @@ class Game(gym.Env):
         if status == "hit ceiling":
             reward += self.rewards['hit_ceiling']
 
-        # Handle ball updates and rewards
+        #########################
+        # LASER SIMULATION REWARD
+        #########################
         self.balls.update()
+        laser_sim = self.agent.laser._will_collide(self.balls, self.agent.rect.centerx, self.agent.rect.top)
+        # Action is [SHOOT]
         if direction == Direction.SHOOT:
-            laser_hits = self.agent.laser._will_collide(self.balls)
-            reward += laser_hits
+            # If we shoot the laser, we should hit a ball
+            reward += laser_sim
+        # Action is not [SHOOT] but laser is active
+        elif self.agent.laser.active:
+            # If the laser is already active, it should not matter
+            # whether we shoot or not this timestep
+            pass
+        # Action is not [SHOOT] and laser is not active
+        else:
+            # If there isn't laser being shot, we should
+            # be rewarded if the laser wouldn't hit and
+            # penalized if it would hit.
+            reward -= laser_sim
+        #########################
+        #########################
 
         for ball in self.balls:
             hit = self.agent.laser.collidesWith(ball)
@@ -178,26 +195,30 @@ class Game(gym.Env):
                 return
 
     def _get_obs(self):
-        ball_positions = []
         ball_sizes = []
+        ball_X = []
+        ball_Y = []
         for ball in self.balls:
-            ball_positions.append([ball.rect.centerx, max(ball.rect.centery, 0)])
             ball_sizes.append(ball.ballLevel)
+            ball_X.append(round(ball.rect.centerx / 10))
+            ball_Y.append(max(round(ball.rect.centery / 10), 0))
 
-        for i in range(len(ball_positions), 16):
-            ball_positions.append([0, 0])
+        for i in range(len(self.balls), 16):
             ball_sizes.append(0)
+            ball_X.append(0)
+            ball_Y.append(0)
 
-        return {
-            "player_position": round(self.agent.rect.centerx / 10),  # Player x position
-            "laser_state": int(self.agent.laser.active),  # Laser is active
-            "laser_position": round(self.agent.laser.length / 10),  # Laser height
-            "ball_positions": (np.array(ball_positions) / 10).astype(np.uint8),
-            # Positions of balls; [0,0] indicates absence
-            "ball_sizes": np.array(ball_sizes).astype(np.uint8)
-            # Sizes of balls; zeros for the absent balls
+        obs = {
+            "ball_sizes": np.array(ball_sizes).astype(np.uint8),
+            "ball_X": np.array(ball_X).astype(np.uint8),
+            "ball_Y": np.array(ball_Y).astype(np.uint8),
+            "laser_position": round(self.agent.laser.length / 10),
+            "laser_state": int(self.agent.laser.active),
+            "player_position": round(self.agent.rect.centerx / 10)
         }
 
+        assert self.observation_space.contains(obs), "Observation does not match defined space"
+        return obs
     def _get_info(self):
         return {}
 

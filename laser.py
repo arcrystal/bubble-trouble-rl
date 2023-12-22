@@ -99,11 +99,12 @@ class Laser(pygame.sprite.Sprite):
         new_laser.active = self.active
         return new_laser
 
-    def _will_collide(self, balls):
-        if not self.active:
-            return 0
-
+    def _will_collide(self, balls, x=None, y=None):
         laser_copy = self.copy()
+        if not laser_copy.active:
+            laser_copy.deactivate()
+            laser_copy.fire(x, y)
+
         ball_copies = [ball.copy() for ball in balls]
         while(laser_copy.active):
             laser_copy.update()

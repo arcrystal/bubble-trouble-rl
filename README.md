@@ -1,0 +1,1 @@
+ray.dashboard.utils.FrontendNotFoundError: [Errno 2] Dashboard build directory not found. If installing from source, please follow the additional steps required to build the dashboard: **_cd python/ray/dashboard/client && npm ci && npm run build_**
