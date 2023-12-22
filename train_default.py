@@ -25,7 +25,7 @@ def get_args():
         "-tune", "--tune-iters", type=int, default=1, help="Number of iterations to tune."
     )
     parser.add_argument(
-        "-train", "--train-iters", type=int, default=15, help="Number of iterations to train."
+        "-train", "--train-iters", type=int, default=1000, help="Number of iterations to train."
     )
 
     parser.add_argument(
@@ -44,20 +44,6 @@ def tune_model(tune_iters):
         .training(
             model={
                 "use_lstm": True,
-                # ValueError: Cannot concat data under key 'obs', b/c sub-structures under that key don't match.
-                # `samples`=[SampleBatch(2000 (seqs=5): ['obs', 'new_obs', 'actions', 'prev_actions', 'rewards',
-                # 'prev_rewards', 'terminateds', 'truncateds', 'infos', 'eps_id', 'unroll_id', 'agent_index',
-                # 't', 'state_in', 'state_out', 'vf_preds', 'action_dist_inputs', 'action_prob', 'action_logp',
-                # 'values_bootstrapped', 'advantages', 'value_targets']),
-                # SampleBatch(2000 (seqs=6): ['obs', 'new_obs', 'actions', 'prev_actions', 'rewards',
-                # 'prev_rewards', 'terminateds', 'truncateds', 'infos', 'eps_id', 'unroll_id', 'agent_index',
-                # 't', 'state_in', 'state_out', 'vf_preds', 'action_dist_inputs', 'action_prob', 'action_logp',
-                # 'values_bootstrapped', 'advantages', 'value_targets'])]
-
-                #  Original error:
-                #  all the input array dimensions except for the concatenation axis must match exactly,
-                #  but along dimension 1, the array at index 0 has size 512 and the array at index 1 has size 493
-                #"max_seq_len": 493, this also failed so trying 256
                 "max_seq_len":256,
                 #"max_seq_len": tune.grid_search([16, 32, 64, 128, 256]),
                 "lstm_use_prev_reward": True,
@@ -126,17 +112,22 @@ def plot(filename="rewards.txt"):
         y = np.array(rewards)
         x = np.array(list(range(len(rewards)))) + 1
         plt.plot(x, y)
-        plt.show()
+        plt.axhline(y=0.0, color='r', linestyle='-')
+        plt.title("Mean Reward per Episode")
+        plt.ylabel("Mean Reward")
+        plt.xlabel("Episode")
+        name = "lstm_ppo"
+        version_num = sum(name in file for file in os.listdir("Results/")) + 1
+        plt.savefig(f"Plots/{name}_v{version_num}.png")
 
 
 def simulate_model(algo):
     env = Game({'render_mode': 'human', 'fps': 120})
     observation, info = env.reset()
     cumulative_reward = 0
-    state = algo.get_state()
+    state = [np.zeros(256, dtype=np.float32) for _ in range(2)]
     while True:
-        action, rnn_state, _ = algo.compute_single_action(observation, state=state)
-        print("stepping")
+        action, rnn_state, _ = algo.compute_single_action(observation)
         observation, reward, terminated, truncated, _ = env.step(action)
         state = rnn_state
         if terminated or truncated:
@@ -152,5 +143,21 @@ if __name__ == "__main__":
     config = tune_model(args.tune_iters)
     algo = train_model(args.train_iters, config)
     plot()
+    # ppo_config = (
+    #     PPOConfig()
+    #     .environment(Game, env_config={"render_mode": "human"})
+    #     .framework("torch")
+    #     .training(
+    #         model={
+    #             "use_lstm": True,
+    #             "max_seq_len":256,
+    #             "lstm_use_prev_reward": True,
+    #             "lstm_use_prev_action": True,
+    #         },
+    #     )
+    # )
+    # algo = PPO(config=ppo_config)
+    # ckpt = "/Users/acrystal/Desktop/Coding/bubble-trouble-rl/Results/lstm_ppo_v5/checkpoint_000500"
+    # algo.restore(ckpt)
     simulate_model(algo)
     ray.shutdown()

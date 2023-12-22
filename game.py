@@ -2,8 +2,7 @@ import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
 import pygame
-from collections import OrderedDict
-
+from pprint import pprint
 from direction import Direction
 from laser import Laser
 from levels import Levels
@@ -22,8 +21,8 @@ class Game(gym.Env):
             'hit_ceiling': 0.0,
             'hit_ball': 0.0,
             'pop_ball': 0.0,
-            'finish_level': 0.0,
-            'game_over': -0.0,
+            'finish_level': 100.0,
+            'game_over': -10.0,
             'distance_from_center': 0.0
         })
         self.window = None
@@ -45,14 +44,14 @@ class Game(gym.Env):
         self.balls = self.levels.get(1)
 
         self.action_space = gym.spaces.Discrete(4)
-        self.observation_space = spaces.Dict({
-            "ball_sizes": spaces.MultiDiscrete([5] * 16),  # 5 size categories, max 16 balls
-            "ball_X": spaces.MultiDiscrete([64 + 1] * 16),
-            "ball_Y": spaces.MultiDiscrete([48 + 1] * 16),
-            "laser_position": spaces.Discrete(48 + 1),  # Game height is 48
-            "laser_state": spaces.Discrete(2),
-            "player_position": spaces.Discrete(64 + 1)  # Game width is 64
-        })
+        # self.observation_space = spaces.Dict({
+        #     "ball_sizes": spaces.Box(low=0.0, high=1.0, shape=(16,)),
+        #     "ball_X": spaces.Box(low=0.0, high=1.0, shape=(16,)),
+        #     "ball_Y": spaces.Box(low=0.0, high=1.0, shape=(16,)),
+        #     "laser_position": spaces.Box(low=0.0, high=1.0, shape=(1,)),
+        #     "player_position": spaces.Box(low=0.0, high=1.0, shape=(1,))
+        # })
+        self.observation_space = spaces.Box(low=0.0, high=1.0, shape=(50,))
 
         self._action_to_direction = {
             0: Direction.LEFT,
@@ -152,8 +151,8 @@ class Game(gym.Env):
                 terminated = True
 
         observation = self._get_obs()
-        reward += (abs(observation['player_position'] - round(self.width / 2))
-                   * self.rewards['distance_from_center'])
+        # reward += (abs(observation['player_position'] - round(self.width / 2))
+        #            * self.rewards['distance_from_center'])
         info = self._get_info()
 
         if self.render_mode == "human":
@@ -199,24 +198,26 @@ class Game(gym.Env):
         ball_X = []
         ball_Y = []
         for ball in self.balls:
-            ball_sizes.append(ball.ballLevel)
-            ball_X.append(round(ball.rect.centerx / 10))
-            ball_Y.append(max(round(ball.rect.centery / 10), 0))
+            ball_sizes.append(ball.radius / min(self.width, self.height))
+            ball_X.append(ball.rect.centerx / self.width)
+            ball_Y.append(ball.rect.centery / self.height)
 
         for i in range(len(self.balls), 16):
-            ball_sizes.append(0)
-            ball_X.append(0)
-            ball_Y.append(0)
+            ball_sizes.append(0.0)
+            ball_X.append(0.0)
+            ball_Y.append(0.0)
 
-        obs = {
-            "ball_sizes": np.array(ball_sizes).astype(np.uint8),
-            "ball_X": np.array(ball_X).astype(np.uint8),
-            "ball_Y": np.array(ball_Y).astype(np.uint8),
-            "laser_position": round(self.agent.laser.length / 10),
-            "laser_state": int(self.agent.laser.active),
-            "player_position": round(self.agent.rect.centerx / 10)
-        }
-
+        obs_list = (ball_sizes + ball_X + ball_Y
+                    + [self.agent.laser.length / self.height,
+                       self.agent.rect.centerx / self.width])
+        # obs = {
+        #     "ball_sizes": np.array(ball_sizes, dtype=np.float32),
+        #     "ball_X": np.array(ball_X, dtype=np.float32),
+        #     "ball_Y": np.array(ball_Y, dtype=np.float32),
+        #     "laser_position": np.array([self.agent.laser.length / self.height], dtype=np.float32),
+        #     "player_position": np.array([self.agent.rect.centerx / self.width], dtype=np.float32)
+        # }
+        obs = np.array(obs_list, dtype=np.float32)
         assert self.observation_space.contains(obs), "Observation does not match defined space"
         return obs
     def _get_info(self):

@@ -4,8 +4,8 @@ import pygame
 class Laser(pygame.sprite.Sprite):
     def __init__(self, width, height, fps):
         super().__init__()
-        self.x = -1
-        self.y = -1
+        self.x = 0.0
+        self.y = 0.0
         self.width = int(width / 500.0)
         self.display_height = height
         self.display_width = width
@@ -39,25 +39,6 @@ class Laser(pygame.sprite.Sprite):
                 self.deactivate()
 
             self.length = min(self.length + self.speed, self.y)
-
-
-
-    def intersects(self, circle_center, circle_radius, line_x):
-        x_center, y_center = circle_center
-
-        A = 1.0
-        B = 2.0 * x_center
-        C = (x_center**2
-             + y_center**2
-             + line_x**2
-             - 2 * y_center * line_x
-             - circle_radius**2)
-
-        # Calculate the discriminant
-        D = B**2 - 4 * A * C
-
-        # Check the discriminant to determine intersection
-        return D >= 0
 
     def collidesWith(self, ball):
         # lasers is inactive
