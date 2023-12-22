@@ -135,3 +135,5 @@ Backgrounds/*.jpg
 *.pptx
 Weights/
 Weights/*
+Results/
+*.docx
