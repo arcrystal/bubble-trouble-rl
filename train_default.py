@@ -2,6 +2,7 @@ import ray
 from ray import air, tune
 from ray.tune import TuneConfig
 from ray.rllib.algorithms.ppo import PPOConfig, PPO
+from ray.rllib.algorithms.algorithm import Algorithm
 from game import Game
 import argparse
 import os
@@ -24,7 +25,7 @@ def get_args():
         "-tune", "--tune-iters", type=int, default=1, help="Number of iterations to tune."
     )
     parser.add_argument(
-        "-train", "--train-iters", type=int, default=1000, help="Number of iterations to train."
+        "-train", "--train-iters", type=int, default=1, help="Number of iterations to train."
     )
 
     parser.add_argument(
@@ -74,19 +75,23 @@ def tune_model(tune_iters):
     return results.get_best_result().config
 
 
-def train_model(train_iters, best_config, print_every=1):
+def train_model(train_iters, best_config, print_every=1, ckpt=""):
     name = "lstm_ppo"
     version_num = sum(name in file for file in os.listdir("Results/")) + 1
     out_path = f"Results/{name}_v{version_num}"
     ppo = PPO(config=best_config)
+    if ckpt:
+        ppo.restore(ckpt)
+
     start = time.time()
     episode_reward_means = []
     for i in range(train_iters):
         result = ppo.train()
         episode_reward_means.append(result['episode_reward_mean'])
         if i % print_every == 0:
-            ppo.save(out_path)
+            checkpoint_dir = ppo.save().checkpoint.path
             print(f"\n___________\nEpisode {i}:")
+            print(f"Ckpt saved at {checkpoint_dir}")
             print(f'Mean reward:', round(result['episode_reward_mean'], 4))
             print(f'Runtime    : ', round(time.time() - start, 4) / print_every)
             start = time.time()
@@ -120,45 +125,63 @@ def plot(filename="rewards.txt"):
         plt.savefig(f"Plots/{name}_v{version_num}.png")
 
 
-def simulate_model(algo):
+def simulate_model(ckpt):
+    algo = Algorithm.from_checkpoint(ckpt)
+    policy = algo.get_policy()
     env = Game({'render_mode': 'human', 'fps': 120})
     observation, info = env.reset()
     cumulative_reward = 0
-    state = algo.get_state()
+    state = policy.get_initial_state()
     while True:
-        action, rnn_state, _ = algo.compute_single_action(observation, state=state)
+        action, rnn_state, _ = policy.compute_single_action(observation, state=state)
         observation, reward, terminated, truncated, _ = env.step(action)
         state = rnn_state
         if terminated or truncated:
             break
 
         cumulative_reward += reward
+        print(f"Cumulative reward: {cumulative_reward}")
 
-    print(f"Cumulative reward: {cumulative_reward}")
+
+
+
+def get_stats(ckpt):
+    algo = Algorithm.from_checkpoint(ckpt)
+    policy = algo.get_policy()
+    # <ray.rllib.policy.eager_tf_policy.PPOTFPolicy_eager object at 0x7fd020165470>
+
+    # Run a forward pass to get model output logits. Note that complex observations
+    # must be preprocessed as in the above code block.
+    logits, _ = policy.model({"obs": np.array([[0.1, 0.2, 0.3, 0.4]])})
+    # (<tf.Tensor: id=1274, shape=(1, 2), dtype=float32, numpy=...>, [])
+
+    # Compute action distribution given logits
+    policy.dist_class
+    # <class_object 'ray.rllib.models.tf.tf_action_dist.Categorical'>
+    dist = policy.dist_class(logits, policy.model)
+    # <ray.rllib.models.tf.tf_action_dist.Categorical object at 0x7fd02301d710>
+
+    # Query the distribution for samples, sample logps
+    dist.sample()
+    # <tf.Tensor: id=661, shape=(1,), dtype=int64, numpy=..>
+    dist.logp([1])
+    # <tf.Tensor: id=1298, shape=(1,), dtype=float32, numpy=...>
+
+    # Get the estimated values for the most recent forward pass
+    policy.model.value_function()
+    # <tf.Tensor: id=670, shape=(1,), dtype=float32, numpy=...>
+
+    print(policy.model.base_model.summary())
 
 
 if __name__ == "__main__":
-    args = get_args()
-    ray.init()
-    config = tune_model(args.tune_iters)
-    ppo_algo = train_model(args.train_iters, config)
-    plot()
-    # ppo_config = (
-    #     PPOConfig()
-    #     .environment(Game, env_config={"render_mode": "human"})
-    #     .framework("torch")
-    #     .training(
-    #         model={
-    #             "use_lstm": True,
-    #             "max_seq_len":256,
-    #             "lstm_use_prev_reward": True,
-    #             "lstm_use_prev_action": True,
-    #         },
-    #     )
-    # )
-    # algo = PPO(config=ppo_config)
-    # project_dir = "/Users/acrystal/Desktop/Coding/bubble-trouble-rl/"
-    # ckpt = project_dir + "Results/lstm_ppo_v5/checkpoint_000500"
-    # algo.restore(ckpt)
-    simulate_model(ppo_algo)
-    ray.shutdown()
+    project_dir = "/Users/acrystal/Desktop/Coding/bubble-trouble-rl/"
+    ckpt = project_dir + "Results/lstm_ppo_v9/checkpoint_000025"
+    # args = get_args()
+    # ray.init()
+    # config = tune_model(args.tune_iters)
+    # ppo_algo = train_model(args.train_iters, config, ckpt=ckpt)
+    # plot()
+    #get_stats(ckpt)
+    simulate_model(ckpt)
+    # ray.shutdown()
