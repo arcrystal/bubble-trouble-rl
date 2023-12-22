@@ -2,6 +2,7 @@ import time
 
 import ray
 from ray import air, tune
+from ray.tune import TuneConfig
 from ray.rllib.algorithms.ppo import PPOConfig, PPO
 from game import Game
 import argparse
@@ -42,7 +43,6 @@ def tune_model(tune_iters):
                 "lstm_use_prev_reward": True,
                 "lstm_use_prev_action": True,
             },
-            optimizer=(),
             lr=tune.grid_search([0.01, 0.001, 0.0001, 0.00001])
         )
     )
@@ -50,17 +50,21 @@ def tune_model(tune_iters):
     stop = {
         "training_iteration": tune_iters
     }
+    tune_config = TuneConfig()
+    tune_config.metric = 'episode_reward_mean'
+    tune_config.mode = 'max'
 
     tuner = tune.Tuner(
         "PPO",
         param_space=ppo_config.to_dict(),
         run_config=air.RunConfig(stop=stop),
+        tune_config=tune_config
     )
     results = tuner.fit()
     return results.get_best_result().config
 
 
-def train_model(train_iters, best_config):
+def train_model(train_iters, best_config, print_every=2):
     name = "default"
     version_num = sum(name in file for file in os.listdir("Results/"))
     out_path = f"Results/{name}_v{version_num}"
@@ -69,7 +73,7 @@ def train_model(train_iters, best_config):
     start = time.time()
     for i in range(train_iters):
         result = trainer.train()
-        if i % 25 == 0:
+        if i % print_every == 0:
             trainer.save(out_path)
             print(f"\n___________\nEpisode {i}:")
             print('Episode reward mean     :', round(result['episode_reward_mean'], 4))
@@ -104,6 +108,6 @@ if __name__ == "__main__":
     print(f"Running with following CLI options: {args}")
     ray.init(local_mode=False)
     config = tune_model(args.tune_iters)
-    path = train_model(args.train_iters, config)
-    simulate_model(path)
+    save_path = train_model(args.train_iters, config)
+    simulate_model(save_path)
     ray.shutdown()

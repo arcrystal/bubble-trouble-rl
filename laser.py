@@ -2,19 +2,17 @@ import pygame
 
 
 class Laser(pygame.sprite.Sprite):
-    def __init__(self, width, height, screen, fps, render_mode):
+    def __init__(self, width, height, fps):
         super().__init__()
         self.x = -1
         self.y = -1
         self.width = int(width / 500.0)
         self.display_height = height
         self.display_width = width
-        self.screen = screen
         self.speed = height / fps
-        print(self.speed)
+        self.fps = fps
         self.active = False
         self.length = 0.0
-        self.render_mode = render_mode
 
     def fire(self, x, y):
         """
@@ -62,24 +60,23 @@ class Laser(pygame.sprite.Sprite):
         return D >= 0
 
     def collidesWith(self, ball):
-        # inactive lasers do not collide
+        # lasers is inactive
         if not self.active:
             return False
 
         ball_x, ball_y = ball.rect.center
         ball_radius = ball.radius
 
-        #print(ball_y+ball_radius, self.y - self.length)
         if (ball_y + ball_radius) < (self.y - self.length):
-            print("ball is above laser")
+            # ball is above laser
             return False
 
         if (ball_x + ball_radius) < self.x:
-            print("ball is left of laser")
+            # ball is left of laser
             return False
 
         if (ball_x - ball_radius) > self.x:
-            print("ball is right of laser")
+            # ball is right of laser
             return False
 
         if (self.y - self.length < ball_y + ball_radius
@@ -94,9 +91,30 @@ class Laser(pygame.sprite.Sprite):
             rect = pygame.Rect(self.x, self.y - self.length, self.width, self.length)
             pygame.draw.rect(canvas, (255, 0, 0), rect)
 
-
     def copy(self):
-        new_laser = Laser(self.width, self.display_height)
+        new_laser = Laser(self.width, self.display_height, self.fps)
+        new_laser.x = self.x
+        new_laser.y = self.y
         new_laser.length = self.length
         new_laser.active = self.active
         return new_laser
+
+    def _will_collide(self, balls):
+        if not self.active:
+            return 0
+
+        laser_copy = self.copy()
+        ball_copies = [ball.copy() for ball in balls]
+        while(laser_copy.active):
+            laser_copy.update()
+            # print(f"\nLaser:", laser_copy)
+            for i, ball_copy in enumerate(ball_copies):
+                ball_copy.update()
+                #print(f"Ball{i+1}:", ball_copy)
+                if laser_copy.collidesWith(ball_copy):
+                    return 1
+
+        return -1
+
+    def __repr__(self):
+        return f"({self.x}, {self.y - self.length}:{self.y})"

@@ -1,9 +1,7 @@
-from abc import ABC, abstractmethod
-
 import pygame
 
 
-class AbstractBall(pygame.sprite.Sprite, ABC):
+class AbstractBall(pygame.sprite.Sprite):
     def __init__(self, x, y, display_width, display_height, color, fps=36, right=True):
         super().__init__()
         self.color = color
@@ -24,11 +22,14 @@ class AbstractBall(pygame.sprite.Sprite, ABC):
         pygame.draw.circle(surface, color, (self.radius, self.radius), self.radius)
         self.mask = pygame.mask.from_surface(surface)
 
-    @abstractmethod
     def load_properties(self, display_width, display_height):
-        pass
+        # defaults to level 1 ball
+        size = int(display_width / 50.7273)
+        yacc = display_height
+        bounce_time = 27.17 / 25 / 2
+        yspeed = yacc * bounce_time / 100
+        return size, yacc, yspeed, 1
 
-    @abstractmethod
     def pop(self):
         pass
 
@@ -64,5 +65,8 @@ class AbstractBall(pygame.sprite.Sprite, ABC):
         pygame.draw.circle(window, self.color, self.rect.center, self.radius)
 
     def copy(self):
-        return AbstractBall(self.x, self.y, self.display_width,
+        return type(self)(self.x, self.y, self.display_width,
                             self.display_height, self.color, self.fps)
+
+    def __repr__(self):
+        return f"({self.x}, {self.y}), {self.radius})"

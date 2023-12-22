@@ -38,7 +38,7 @@ class Game(gym.Env):
 
         # Initialize game sprites
         self.agent = Player(self.width / 2, self.height, self.width, self.fps)
-        self.agent.laser = Laser(self.width, self.height, self.window, self.fps, self.render_mode)
+        self.agent.laser = Laser(self.width, self.height, self.fps)
         self.levels = Levels(self.width, self.height, self.fps)
         self.level = 1
         self.balls = self.levels.get(1)
@@ -111,7 +111,10 @@ class Game(gym.Env):
 
         # Handle ball updates and rewards
         self.balls.update()
-        laser_hits = 0
+        if direction == Direction.SHOOT:
+            laser_hits = self.agent.laser._will_collide(self.balls)
+            reward += laser_hits
+
         for ball in self.balls:
             hit = self.agent.laser.collidesWith(ball)
             if hit:
@@ -130,10 +133,7 @@ class Game(gym.Env):
             elif pygame.sprite.collide_mask(self.agent, ball):
                 reward += self.rewards['game_over']
                 terminated = True
-            elif not laser_active and direction == Direction.SHOOT and laser_hits != 1:
-                laser_hits = self._laser_hits_ball(ball)
 
-        reward += laser_hits
         observation = self._get_obs()
         reward += (abs(observation['player_position'] - round(self.width / 2))
                    * self.rewards['distance_from_center'])
@@ -141,9 +141,6 @@ class Game(gym.Env):
 
         if self.render_mode == "human":
             self._render_frame()
-
-        if reward != 0.0:
-            print("Reward:", reward)
 
         return observation, reward, terminated, truncated, info
 
@@ -204,5 +201,3 @@ class Game(gym.Env):
     def _get_info(self):
         return {}
 
-    def _laser_hits_ball(self, ball):
-        return False
