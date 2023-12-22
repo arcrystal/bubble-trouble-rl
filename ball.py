@@ -14,7 +14,7 @@ class BallLevel1(AbstractBall):
         yacc = display_height
         bounce_time = 27.17 / 25 / 2
         yspeed = yacc * bounce_time / 100
-        return size, yacc, yspeed
+        return size, yacc, yspeed, 1
 
     def pop(self):
         self.kill()
@@ -26,7 +26,7 @@ class BallLevel2(AbstractBall):
         yacc = display_height
         bounce_time = 27.17 / 25 / 2
         yspeed = yacc * bounce_time / 100
-        return size, yacc, yspeed
+        return size, yacc, yspeed, 2
 
     def pop(self):
         self.kill()
@@ -40,7 +40,7 @@ class BallLevel3(AbstractBall):
         yacc = display_height
         bounce_time = 27.17 / 25 / 2
         yspeed = yacc * bounce_time / 100
-        return size, yacc, yspeed
+        return size, yacc, yspeed, 3
 
     def pop(self):
         self.kill()
@@ -54,7 +54,7 @@ class BallLevel4(AbstractBall):
         yacc = display_height
         bounce_time = 27.17 / 25 / 2
         yspeed = yacc * bounce_time / 100
-        return size, yacc, yspeed
+        return size, yacc, yspeed, 4
 
     def pop(self):
         self.kill()
@@ -68,7 +68,7 @@ class BallLevel5(AbstractBall):
         yacc = display_height
         bounce_time = 27.17 / 25 / 2
         yspeed = yacc * bounce_time / 100
-        return size, yacc, yspeed
+        return size, yacc, yspeed, 5
 
     def pop(self):
         self.kill()

@@ -4,7 +4,7 @@ from direction import Direction
 
 
 class Player(pygame.sprite.Sprite):
-    def __init__(self, x, y, display_width):
+    def __init__(self, x, y, display_width, fps):
         super().__init__()
         self.laser = None
         self.display_width = display_width
@@ -15,11 +15,11 @@ class Player(pygame.sprite.Sprite):
         self.image = self.still_sprite
         self.rect = self.image.get_rect()
         self.rect.midbottom = (x, y)
-        self.speed = display_width / 250
+        self.speed = display_width / fps / 2
         self.direction = Direction.STILL
 
     def load(self, filename):
-        image = pygame.image.load(filename).convert_alpha()
+        image = pygame.image.load(filename)
         return pygame.transform.scale(image, (self.display_width / 40, self.display_width / 16))
 
     def step(self, direction):
@@ -48,5 +48,5 @@ class Player(pygame.sprite.Sprite):
         elif direction == Direction.STILL:
             self.image = self.still_sprite
 
-    def draw(self, screen):
-        screen.blit(self.image, self.rect)
+    def draw(self, window):
+        window.blit(self.image, self.rect)

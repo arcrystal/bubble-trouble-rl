@@ -54,7 +54,7 @@ class Levels:
         elif lvl == 8:
             balls =  [BallLevel5(self.width // 2, self.height // 4, self.width, self.height, RED, self.fps)]
         else:
-            sys.exit(0)
+            raise ValueError("No further levels have been implemented.")
 
         group = pygame.sprite.Group()
         for ball in balls:

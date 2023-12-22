@@ -7,15 +7,17 @@ class AbstractBall(pygame.sprite.Sprite, ABC):
     def __init__(self, x, y, display_width, display_height, color, fps=36, right=True):
         super().__init__()
         self.color = color
-        size, yacc, yspeed = self.load_properties(display_width, display_height)
+        size, yacc, yspeed, ballLevel = self.load_properties(display_width, display_height)
+        self.ballLevel = ballLevel
         self.radius = size // 2
-        self.xspeed = display_width / (9.5 if right else -9.5)
-        self.xacc = 1.5
-        self.yspeed = yspeed
+        self.fps = fps
+        self.x = x
+        self.y = y
+        self.xspeed = display_width / fps * (9.5 if right else -9.5)
+        self.yspeed = yspeed / fps * 36
         self.yacc = yacc
         self.rect = pygame.Rect(x, y, size, size)
-        self.fps = fps
-        self.timestep = 1 / fps
+        self.timestep = 1.0 / fps
         self.display_width = display_width
         self.display_height = display_height
         surface = pygame.Surface((display_width, display_height), pygame.SRCALPHA)
@@ -31,7 +33,8 @@ class AbstractBall(pygame.sprite.Sprite, ABC):
         pass
 
     def update(self):
-        self.rect.x += self.xspeed * self.timestep
+        self.x += self.xspeed * self.timestep
+        self.rect.x = round(self.x)
 
         # Check for wall collision
         if self.rect.left < 0:
@@ -42,8 +45,8 @@ class AbstractBall(pygame.sprite.Sprite, ABC):
             self.rect.right = self.display_width - (self.rect.right - self.display_width)
 
         # Update vertical movement
-        self.rect.y += self.yspeed * self.timestep + 0.5 * self.yacc * self.timestep ** 2
-
+        self.y += self.yspeed * self.timestep + 0.5 * self.yacc * self.timestep ** 2
+        self.rect.y = round(self.y)
         # Check for ceiling collision (pop)
         if self.rect.top < 0:
             self.pop()
@@ -51,12 +54,15 @@ class AbstractBall(pygame.sprite.Sprite, ABC):
 
         # Check for floor collision
         if self.rect.bottom > self.display_height:
-            self.rect.bottom = self.display_height - (self.rect.bottom - self.display_height)
             self.yspeed = -self.yspeed  # Reverse the vertical speed
+            self.rect.bottom = self.display_height - (self.rect.bottom - self.display_height)
 
         # Update speed
-        self.xspeed += self.xacc * self.timestep
         self.yspeed += self.yacc * self.timestep
 
-    def draw(self, screen):
-        pygame.draw.circle(screen, self.color, self.rect.center, self.radius)
+    def draw(self, window):
+        pygame.draw.circle(window, self.color, self.rect.center, self.radius)
+
+    def copy(self):
+        return AbstractBall(self.x, self.y, self.display_width,
+                            self.display_height, self.color, self.fps)
