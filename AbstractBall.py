@@ -5,16 +5,16 @@ class AbstractBall(pygame.sprite.Sprite):
     def __init__(self, x, y, display_width, display_height, color, fps=36, right=True):
         super().__init__()
         self.color = color
-        size, yacc, yspeed, ballLevel = self.load_properties(display_width, display_height)
-        self.ballLevel = ballLevel
-        self.radius = size // 2
+        radius, max_yspeed, yacc = self.load_properties(display_width)
+        self.radius = radius
         self.fps = fps
         self.x = x
         self.y = y
-        self.xspeed = display_width / fps * (9.5 if right else -9.5)
-        self.yspeed = yspeed / fps * 36
+        self.xspeed = display_width / 9.43333 * (1 if right else -1)
+        self.yspeed = 0
+        self.max_yspeed = max_yspeed
         self.yacc = yacc
-        self.rect = pygame.Rect(x, y, size, size)
+        self.rect = pygame.Rect(x, y, radius*2, radius*2)
         self.timestep = 1.0 / fps
         self.display_width = display_width
         self.display_height = display_height
@@ -22,13 +22,8 @@ class AbstractBall(pygame.sprite.Sprite):
         pygame.draw.circle(surface, color, (self.radius, self.radius), self.radius)
         self.mask = pygame.mask.from_surface(surface)
 
-    def load_properties(self, display_width, display_height):
-        # defaults to level 1 ball
-        size = int(display_width / 50.7273)
-        yacc = display_height
-        bounce_time = 27.17 / 25 / 2
-        yspeed = yacc * bounce_time / 100
-        return size, yacc, yspeed, 1
+    def load_properties(self, display_width):
+       return 0, 0, 0
 
     def pop(self):
         pass
@@ -55,11 +50,17 @@ class AbstractBall(pygame.sprite.Sprite):
 
         # Check for floor collision
         if self.rect.bottom > self.display_height:
-            self.yspeed = -self.yspeed  # Reverse the vertical speed
-            self.rect.bottom = self.display_height - (self.rect.bottom - self.display_height)
+            self.yspeed = -self.max_yspeed  # Reverse the vertical speed
+            self.rect.bottom = self.display_height
 
         # Update speed
-        self.yspeed += self.yacc * self.timestep
+        self.yspeed = self.clip(self.yspeed + self.yacc * self.timestep)
+
+    def clip(self, speed):
+        if speed > 0:
+            return min(speed, self.max_yspeed)
+        else:
+            return max(speed, -self.max_yspeed)
 
     def draw(self, window):
         pygame.draw.circle(window, self.color, self.rect.center, self.radius)

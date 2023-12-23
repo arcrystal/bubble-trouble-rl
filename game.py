@@ -2,7 +2,6 @@ import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
 import pygame
-from pprint import pprint
 from direction import Direction
 from laser import Laser
 from levels import Levels
@@ -27,8 +26,8 @@ class Game(gym.Env):
         })
         self.window = None
         self.clock = None
-        self.width = 640
-        self.height = 480
+        self.width = 720
+        self.height = round(self.width / 1.87) # 385
 
         if self.render_mode == "human":
             pygame.init()
@@ -108,9 +107,6 @@ class Game(gym.Env):
         if status == "hit ceiling":
             reward += self.rewards['hit_ceiling']
 
-        #########################
-        # LASER SIMULATION REWARD
-        #########################
         self.balls.update()
         laser_sim = self.agent.laser._will_collide(self.balls, self.agent.rect.centerx, self.agent.rect.top)
         # Action is [SHOOT]
@@ -125,11 +121,8 @@ class Game(gym.Env):
         # Action is not [SHOOT] and laser is not active
         else:
             # If there isn't laser being shot, we should
-            # be rewarded if the laser wouldn't hit and
             # penalized if it would hit.
-            reward -= laser_sim
-        #########################
-        #########################
+            reward -= max(laser_sim, 0)
 
         for ball in self.balls:
             hit = self.agent.laser.collidesWith(ball)
@@ -200,7 +193,7 @@ class Game(gym.Env):
         for ball in self.balls:
             ball_sizes.append(ball.radius / min(self.width, self.height))
             ball_X.append(ball.rect.centerx / self.width)
-            ball_Y.append(ball.rect.centery / self.height)
+            ball_Y.append(max(ball.rect.centery / self.height, 0))
 
         for i in range(len(self.balls), 16):
             ball_sizes.append(0.0)
@@ -217,8 +210,12 @@ class Game(gym.Env):
         #     "laser_position": np.array([self.agent.laser.length / self.height], dtype=np.float32),
         #     "player_position": np.array([self.agent.rect.centerx / self.width], dtype=np.float32)
         # }
+
         obs = np.array(obs_list, dtype=np.float32)
-        assert self.observation_space.contains(obs), "Observation does not match defined space"
+        if not self.observation_space.contains(obs):
+            print(obs.tolist())
+            print("Observation space does not contain this observation.")
+
         return obs
     def _get_info(self):
         return {}

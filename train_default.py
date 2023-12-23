@@ -25,7 +25,7 @@ def get_args():
         "-tune", "--tune-iters", type=int, default=1, help="Number of iterations to tune."
     )
     parser.add_argument(
-        "-train", "--train-iters", type=int, default=1, help="Number of iterations to train."
+        "-train", "--train-iters", type=int, default=100, help="Number of iterations to train."
     )
 
     parser.add_argument(
@@ -49,12 +49,11 @@ def tune_model(tune_iters):
                 "lstm_use_prev_reward": True,
                 "lstm_use_prev_action": True,
             },
-            # lr=tune.grid_search([0.1,     0.05,
-            #                      0.01,    0.005,
-            #                      0.001,   0.0005,
-            #                      0.0001,  0.00005,
-            #                      0.00001, 0.000005])
-            lr=0.005
+            lr=tune.grid_search([0.1,     0.05,
+                                 0.01,    0.005,
+                                 0.001,   0.0005,
+                                 0.0001,  0.00005,
+                                 0.00001, 0.000005])
         )
     )
 
@@ -75,7 +74,7 @@ def tune_model(tune_iters):
     return results.get_best_result().config
 
 
-def train_model(train_iters, best_config, print_every=1, ckpt=""):
+def train_model(train_iters, best_config, print_every=5, save_every=10, ckpt=""):
     name = "lstm_ppo"
     version_num = sum(name in file for file in os.listdir("Results/")) + 1
     out_path = f"Results/{name}_v{version_num}"
@@ -89,12 +88,13 @@ def train_model(train_iters, best_config, print_every=1, ckpt=""):
         result = ppo.train()
         episode_reward_means.append(result['episode_reward_mean'])
         if i % print_every == 0:
-            checkpoint_dir = ppo.save().checkpoint.path
             print(f"\n___________\nEpisode {i}:")
-            print(f"Ckpt saved at {checkpoint_dir}")
-            print(f'Mean reward:', round(result['episode_reward_mean'], 4))
-            print(f'Runtime    : ', round(time.time() - start, 4) / print_every)
+            print(f'Mean reward :', round(result['episode_reward_mean'], 4))
+            print(f'Runtime     :', round(time.time() - start, 4) / print_every)
             start = time.time()
+        if i % save_every == 0:
+            checkpoint_dir = ppo.save(out_path)
+            print(f"Ckpt saved  : {checkpoint_dir}")
 
     with open("rewards.txt", 'w') as f:
         for mean in episode_reward_means:
@@ -144,12 +144,12 @@ def simulate_model(ckpt):
 
 
 if __name__ == "__main__":
-    project_dir = "/Users/acrystal/Desktop/Coding/bubble-trouble-rl/"
-    ckpt = project_dir + "Results/lstm_ppo_v9/checkpoint_000025"
+    results_dir = "/Users/acrystal/Desktop/Coding/bubble-trouble-rl/Results/"
     args = get_args()
     ray.init()
     config = tune_model(args.tune_iters)
-    ppo_algo = train_model(args.train_iters, config, ckpt=ckpt)
+    ppo_algo = train_model(args.train_iters, config) #, ckpt=ckpt)
     plot()
-    simulate_model(ckpt)
+    # ckpt = results_dir + "lstm_ppo/"
+    # simulate_model(ckpt)
     ray.shutdown()

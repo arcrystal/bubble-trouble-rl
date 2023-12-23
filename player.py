@@ -20,7 +20,8 @@ class Player(pygame.sprite.Sprite):
 
     def load(self, filename):
         image = pygame.image.load(filename)
-        return pygame.transform.scale(image, (self.display_width / 40, self.display_width / 16))
+        # if display width = 720, player height = 47 and width = 21
+        return pygame.transform.scale(image, (21 / 720 * self.display_width, 47 / 720 * self.display_width))
 
     def step(self, direction):
         if not isinstance(direction, Direction):
