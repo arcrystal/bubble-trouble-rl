@@ -138,3 +138,6 @@ Weights/*
 Results/
 *.docx
 Plots/
+Random/
+*.png
+*.mov
