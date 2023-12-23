@@ -78,6 +78,7 @@ def train_model(train_iters, best_config, print_every=5, save_every=10, ckpt="")
     name = "lstm_ppo"
     version_num = sum(name in file for file in os.listdir("Results/")) + 1
     out_path = f"Results/{name}_v{version_num}"
+    checkpoint_dir = ""
     ppo = PPO(config=best_config)
     if ckpt:
         ppo.restore(ckpt)
@@ -103,7 +104,7 @@ def train_model(train_iters, best_config, print_every=5, save_every=10, ckpt="")
 
         f.close()
 
-    return ppo
+    return ppo, checkpoint_dir
 
 
 def plot(filename="rewards.txt"):
@@ -133,9 +134,9 @@ def simulate_model(ckpt):
     cumulative_reward = 0
     state = policy.get_initial_state()
     while True:
-        action, rnn_state, _ = policy.compute_single_action(observation, state=state)
+        action, lstm_state, _ = policy.compute_single_action(observation, state=state)
         observation, reward, terminated, truncated, _ = env.step(action)
-        state = rnn_state
+        state = lstm_state
         if terminated or truncated:
             break
 
@@ -148,8 +149,7 @@ if __name__ == "__main__":
     args = get_args()
     ray.init()
     config = tune_model(args.tune_iters)
-    ppo_algo = train_model(args.train_iters, config) #, ckpt=ckpt)
+    ppo_algo, ckpt = train_model(args.train_iters, config) #, ckpt=ckpt)
     plot()
-    # ckpt = results_dir + "lstm_ppo/"
-    # simulate_model(ckpt)
+    simulate_model(ckpt)
     ray.shutdown()
