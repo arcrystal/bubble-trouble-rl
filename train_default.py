@@ -1,18 +1,17 @@
-from ray import air, tune
 from ray.rllib.algorithms.ppo.ppo_catalog import PPOCatalog
-from ray.tune import TuneConfig
 from ray.rllib.algorithms.ppo import PPOConfig
 from ray.rllib.core.rl_module.rl_module import SingleAgentRLModuleSpec
-from ray.rllib.algorithms.ppo.torch.ppo_torch_rl_module import (
-    PPOTorchRLModule
-)
+from ray.rllib.algorithms.ppo.torch.ppo_torch_rl_module import PPOTorchRLModule
 
 import torch
-from game import Game
-import os
-import time
 import numpy as np
 import matplotlib.pyplot as plt
+
+from game import Game
+
+import os
+import time
+
 
 def get_module_spec(env, ckpt):
     if ckpt:
@@ -20,7 +19,7 @@ def get_module_spec(env, ckpt):
             module_class=PPOTorchRLModule,
             observation_space=env.observation_space,
             action_space=env.action_space,
-            model_config_dict = {"fcnet_hiddens": [128, 512, 256]},
+            model_config_dict={"fcnet_hiddens": [128, 512, 256]},
             catalog_class=PPOCatalog,
             load_state_path=ckpt
         )
@@ -30,8 +29,10 @@ def get_module_spec(env, ckpt):
             observation_space=env.observation_space,
             action_space=env.action_space,
             catalog_class=PPOCatalog,
-            model_config_dict = {"fcnet_hiddens": [128, 512, 256]},
+            model_config_dict={"fcnet_hiddens": [128, 512, 256]},
         )
+
+
 def get_config(env, ckpt=""):
     module_spec = get_module_spec(env, ckpt)
     config = (
@@ -61,34 +62,27 @@ def get_config(env, ckpt=""):
         })
         .exploration(
             explore=True,
-            # exploration_config={
-            #     "type": "EpsilonGreedy",
-            #     # Parameters for the Exploration class' constructor:
-            #     "initial_epsilon": 1.0,
-            #     "final_epsilon": 0.02,
-            #     "epsilon_timesteps": 1000,  # time-steps over which to anneal epsilon.
-            #     "random_timesteps": 100 # time-steps at beginning, over which to act uniformly randomly
-            # },
         )
     )
     return config
 
-def tune(config):
-    stop = {
-        "training_iteration": 1
-    }
-    tune_config = TuneConfig()
-    tune_config.metric = 'episode_reward_mean'
-    tune_config.mode = 'max'
 
-    tuner = tune.Tuner(
-        "PPO",
-        param_space=config.to_dict(),
-        run_config=air.RunConfig(stop=stop),
-        tune_config=tune_config
-    )
-    results = tuner.fit()
-    return results.get_best_result().config
+# def tune(config):
+#     stop = {
+#         "training_iteration": 1
+#     }
+#     tune_config = TuneConfig()
+#     tune_config.metric = 'episode_reward_mean'
+#     tune_config.mode = 'max'
+#
+#     tuner = tune.Tuner(
+#         "PPO",
+#         param_space=config.to_dict(),
+#         run_config=air.RunConfig(stop=stop),
+#         tune_config=tune_config
+#     )
+#     results = tuner.fit()
+#     return results.get_best_result().config
 
 
 def train_model(env, episodes=1000, print_every=10, ckpt=""):
@@ -143,6 +137,7 @@ def train_model(env, episodes=1000, print_every=10, ckpt=""):
 
     return episode_reward_means, save_path
 
+
 def plot(rewards):
     version = int(sorted(os.listdir("Results"))[-1][-1])
     y = np.array(rewards)
@@ -155,12 +150,13 @@ def plot(rewards):
                 color='green')
     plt.text(x=rewards.index(reward_max)+1,
              y=reward_max + 5,
-             s=str(round(reward_max,4)),
+             s=str(round(reward_max, 4)),
              color='green')
     plt.title("Mean Reward per Episode")
     plt.ylabel("Mean Reward")
     plt.xlabel("Episode")
     plt.savefig(f"Results/ppo_v{version}/plot.png")
+
 
 def simulate(env, ckpt):
     spec = get_module_spec(env, ckpt)
@@ -171,7 +167,7 @@ def simulate(env, ckpt):
     total_reward = 0
     total_steps = 0
     while not terminated:
-        fwd_ins = {"obs": torch.Tensor(obs.reshape(1,obs.shape[0]))}
+        fwd_ins = {"obs": torch.Tensor(obs.reshape(1, obs.shape[0]))}
         fwd_outputs = module.forward_exploration(fwd_ins)
         action_dist = action_dist_class.from_logits(
             fwd_outputs["action_dist_inputs"]
@@ -187,10 +183,10 @@ def simulate(env, ckpt):
 
 if __name__ == "__main__":
     env_config = {'render_mode': None}
-    ckpt = ""
-    # ckpt = "Results/ppo_v1"
-    # ckpt += sorted([x for x in os.listdir(ckpt) if "ckpt" in x])[-1]
-    env = Game(env_config)
-    rewards, ckpt = train_model(env, episodes=1000, print_every=10, ckpt=ckpt)
-    plot(rewards)
-    simulate(Game({'render_mode':"human"}), ckpt=ckpt)
+    checkpoint = ""
+    # checkpoint = "Results/ppo_v1"
+    # checkpoint += sorted([x for x in os.listdir(ckpt) if "ckpt" in x])[-1]
+    game = Game(env_config)
+    mean_rewards, checkpoint = train_model(env=game, episodes=1000, print_every=10, ckpt=checkpoint)
+    plot(mean_rewards)
+    simulate(Game({'render_mode': "human"}), ckpt=checkpoint)
