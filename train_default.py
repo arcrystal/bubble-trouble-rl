@@ -52,6 +52,7 @@ def get_config(env, ckpt=""):
         .framework("torch")
         .training(model={
             "fcnet_hiddens": [128, 512, 512, 256],
+            "fcnet_activation": "relu",
             "use_lstm": True,
             "max_seq_len": 100,
             # Size of the LSTM cell.
@@ -72,29 +73,11 @@ def get_config(env, ckpt=""):
     return config
 
 
-# def tune(config):
-#     stop = {
-#         "training_iteration": 1
-#     }
-#     tune_config = TuneConfig()
-#     tune_config.metric = 'episode_reward_mean'
-#     tune_config.mode = 'max'
-#
-#     tuner = tune.Tuner(
-#         "PPO",
-#         param_space=config.to_dict(),
-#         run_config=air.RunConfig(stop=stop),
-#         tune_config=tune_config
-#     )
-#     results = tuner.fit()
-#     return results.get_best_result().config
-
-
 def train_model(env, episodes=1000, print_every=10, ckpt=""):
     name = "ppo"
     save_path = ""
     episode_reward_means = []
-    max_reward = -9999999
+    max_reward = -75  # minimum reward to trigger saving a checkpoint
     module = get_config(env).build()
     if ckpt:
         module.restore(ckpt)
