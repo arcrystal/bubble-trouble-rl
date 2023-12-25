@@ -118,7 +118,8 @@ def train_model(env, episodes=1000, print_every=10, ckpt=""):
     for i in range(start_episode, episodes+start_episode):
         result = module.train()
         episode_reward_means.append(result['episode_reward_mean'])
-        if i==start_episode: print(result)
+        if i == start_episode:
+            print(result)
         if i % print_every == 0:
             curr_time = time.time() - start_time
             avg_time = curr_time / (i-start_episode+1)
@@ -153,19 +154,19 @@ def train_model(env, episodes=1000, print_every=10, ckpt=""):
     return episode_reward_means, save_path
 
 
-def plot(rewards):
+def plot(mean_rewards):
     version = int(sorted(os.listdir("Results"))[-1][-1])
-    y = np.array(rewards)
-    x = np.arange(len(rewards)) + 1
-    reward_max = max(rewards)
+    y = np.array(mean_rewards)
+    x = np.arange(len(mean_rewards)) + 1
+    max_reward = max(mean_rewards)
     plt.plot(x, y)
     plt.axhline(y=0.0, color='red', linestyle='-')
-    plt.scatter(x=[rewards.index(reward_max)+1],
-                y=[max(rewards)],
+    plt.scatter(x=[mean_rewards.index(max_reward)+1],
+                y=[max(mean_rewards)],
                 color='green')
-    plt.text(x=rewards.index(reward_max)+1,
-             y=reward_max + 5,
-             s=str(round(reward_max, 4)),
+    plt.text(x=mean_rewards.index(max_reward)+1,
+             y=max_reward + 5,
+             s=str(round(max_reward, 4)),
              color='green')
     plt.title("Mean Reward per Episode")
     plt.ylabel("Mean Reward")
@@ -198,10 +199,7 @@ def simulate(env, ckpt):
 
 if __name__ == "__main__":
     env_config = {'render_mode': None}
-    checkpoint = ""
-    # checkpoint = "Results/ppo_v1"
-    # checkpoint += sorted([x for x in os.listdir(ckpt) if "ckpt" in x])[-1]
     game = Game(env_config)
-    mean_rewards, checkpoint = train_model(env=game, episodes=10000, print_every=10, ckpt=checkpoint)
-    plot(mean_rewards)
+    rewards, checkpoint = train_model(env=game, episodes=10000, print_every=10, ckpt="")
+    plot(rewards)
     simulate(Game({'render_mode': "human"}), ckpt=checkpoint)

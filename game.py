@@ -20,8 +20,8 @@ class Game(gym.Env):
             'shoot_when_shooting': -0.01, # every step
             'hit_ball': 3.0, # up to 16x per episode
             'pop_ball': 4.0, # up to 8x per episode
-            'finish_level': 100.0, # up to 8x per episode
-            'game_over': -20.0, # once per episode
+            'finish_level': 50.0, # up to 8x per episode
+            'game_over': -100.0, # once per episode
             'nearest_ball': -0.001, # every step
             'laser_sim': 0.25 # every step
         })
