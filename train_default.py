@@ -6,6 +6,8 @@ from ray.rllib.core.rl_module.rl_module import SingleAgentRLModuleSpec
 from ray.rllib.algorithms.ppo.torch.ppo_torch_rl_module import (
     PPOTorchRLModule
 )
+from ray.rllib.algorithms.algorithm import Algorithm
+
 import torch
 from game import Game
 import os
@@ -80,32 +82,53 @@ def tune(config):
     return results.get_best_result().config
 
 
-def train_model(env, episodes=25, print_every=10, ckpt=""):
+def train_model(env, episodes=1000, print_every=10, ckpt=""):
     name = "ppo"
-    version = sum(name in filename for filename in os.listdir("Results/")) + 1
-    ppo = get_config(env, ckpt).build()
     save_path = ""
     episode_reward_means = []
-    max_reward = -50
-    start = time.time()
-    for i in range(1, episodes+1):
-        result = ppo.train()
+    max_reward = -9999999
+    module = get_config(env).build()
+    if ckpt:
+        module.restore(ckpt)
+        start_episode = int(ckpt[-6:]) + 1
+        start_idx = ckpt.index('v')+1
+        end_idx = ckpt.index('/ckpt')
+        version = int(ckpt[start_idx:end_idx])
+        path = os.path.join(os.getcwd(), f"Results/{name}_v{version}/")
+        with open(path + 'max_reward.txt', 'r') as f:
+            max_reward = float(f.read(max_reward))
+            print("Loaded ckpt episode mean reward:", max_reward)
+    else:
+        start_episode = 1
+        version = sum(name in filename for filename in os.listdir("Results/")) + 1
+        path = os.path.join(os.getcwd(), f"Results/{name}_v{version}/")
+
+    start_time = time.time()
+    for i in range(start_episode, episodes+start_episode):
+        result = module.train()
         episode_reward_means.append(result['episode_reward_mean'])
         if i % print_every == 0:
             print(f"\n___________\nEpisode {i}:")
-            print(f'Mean reward :', round(result['episode_reward_mean'], 4))
-            print(f'Runtime     :', round(time.time() - start, 4) / print_every)
-            start = time.time()
+            print(f'Mean reward    :', round(result['episode_reward_mean'], 4))
+            print(f'Avg Runtime    :', round((time.time() - start_time) / i, 4))
+            print(f'Total Runtime  :', round(time.time() - start_time, 4))
         if result['episode_reward_mean'] > max_reward:
+            if not os.path.exists(path):
+                os.mkdir(path)
+
             max_reward = result['episode_reward_mean']
-            result = ppo.save(os.path.join(os.getcwd(), f"Results/{name}_v{version}"))
+            prefix = '0' * (6-len(str(i)))
+            result = module.save(checkpoint_dir=os.path.join(path, f"ckpt_e{prefix}{i}"))
             save_path = result.checkpoint.path
-            print(f"Ckpt saved  : {save_path}")
-            print(f"Mean reward : {max_reward}")
+            print(f"Ckpt saved     : {save_path}")
+            print(f"Mean reward    : {max_reward}")
+
+    module.stop()
+    with open(path + 'max_reward.txt', 'w') as f:
+        print("\nMax reward:", max_reward)
+        f.write(str(max_reward))
 
     return episode_reward_means, save_path
-
-
 
 def plot(rewards):
     name = "ppo"
@@ -144,7 +167,8 @@ def simulate(env, ckpt):
 
 if __name__ == "__main__":
     env_config = {'render_mode': None}
+    ckpt='Results/ppo_v6/ckpt_e003500'
     env = Game(env_config)
-    rewards, ckpt = train_model(env, episodes=500)
+    rewards, ckpt = train_model(env, episodes=5000, print_every=10, ckpt=ckpt)
     plot(rewards)
-    simulate(env, ckpt=ckpt)
+    simulate(Game({'render_mode':"human"}), ckpt=ckpt)
