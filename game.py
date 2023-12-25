@@ -16,19 +16,20 @@ class Game(gym.Env):
         self.render_mode = config.get('render_mode', 'human')
         self.fps = config.get('fps', 60)
         self.rewards = config.get('rewards', {
-            'time_passing': 0.0,
-            'shoot_when_shooting': -0.1,
-            'hit_ceiling': -0.1,
-            'hit_ball': 3.0,
-            'pop_ball': 4.0,
-            'finish_level': 100.0,
-            'game_over': -20.0,
-            'nearest_ball': -0.001
+            'time_passing': 0.0, # every step
+            'shoot_when_shooting': -0.01, # every step
+            'hit_ball': 3.0, # up to 16x per episode
+            'pop_ball': 4.0, # up to 8x per episode
+            'finish_level': 100.0, # up to 8x per episode
+            'game_over': -20.0, # once per episode
+            'nearest_ball': -0.001, # every step
+            'laser_sim': 0.25 # every step
         })
         self.width = config.get('width', 720)
         self.window = None
         self.clock = None
         self.height = round(self.width / 1.87) # 385
+        self.info = {}
 
         if self.render_mode == "human":
             pygame.init()
@@ -63,11 +64,11 @@ class Game(gym.Env):
         self.level = 1
         self.balls = self.levels.get(self.level)
         observation = self._get_obs()
-        info = self._get_info()
-
+        self.info = {}
         if self.render_mode == "human":
             self._render_frame()
 
+        info = self._get_info()
         return observation, info
 
     def step(self, action=None):
@@ -96,15 +97,15 @@ class Game(gym.Env):
         if laser_active and direction == Direction.SHOOT:
             reward += self.rewards['shoot_when_shooting']
 
+        # Update agent, laser, and ball sprites
         self.agent.step(direction)
-        status = self.agent.laser.update()
-        if status == "hit ceiling":
-            reward += self.rewards['hit_ceiling']
-
+        self.agent.laser.update()
         self.balls.update()
+
         distanceReward = self.nearestBall() * self.rewards['nearest_ball']
         reward += distanceReward
         laser_sim = self.agent.laser._will_collide(self.balls, self.agent.rect.centerx, self.agent.rect.top)
+        laser_sim *= self.rewards['laser_sim']
         if direction == Direction.SHOOT:
             # If we shoot the laser, we should hit a ball
             reward += laser_sim
@@ -214,5 +215,5 @@ class Game(gym.Env):
 
         return obs
     def _get_info(self):
-        return {}
+        return self.info
 
