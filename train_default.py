@@ -121,7 +121,7 @@ def train_model(env, episodes=1000, print_every=10, ckpt=""):
         episode_reward_means.append(result['episode_reward_mean'])
         if i % print_every == 0:
             print(f"\n___________")
-            print(f"Episode       : {i}/{episodes+start_episode-1}")
+            print(f"Episode {i}/{episodes+start_episode-1}")
             print(f'Mean reward   :', round(result['episode_reward_mean'], 4))
             print(f'Avg Runtime   :', round((time.time() - start_time) / (i-start_episode+1), 4))
             print(f'Total Runtime :', round(time.time() - start_time, 4))
@@ -133,8 +133,8 @@ def train_model(env, episodes=1000, print_every=10, ckpt=""):
             prefix = '0' * (6-len(str(i)))
             result = module.save(checkpoint_dir=os.path.join(path, f"ckpt_e{prefix}{i}"))
             save_path = result.checkpoint.path
-            print(f"Ckpt saved     : {save_path}")
-            print(f"Mean reward    : {max_reward}")
+            print(f"Ckpt saved    : {save_path}")
+            print(f"Mean reward   : {round(max_reward,4)}")
 
     module.stop()
     with open(path + 'rewards.txt', 'w') as f:
@@ -187,9 +187,10 @@ def simulate(env, ckpt):
 
 if __name__ == "__main__":
     env_config = {'render_mode': None}
-    ckpt = "Results/ppo_v7/"
-    ckpt += sorted([x for x in os.listdir(ckpt) if "ckpt" in x])[-1]
+    ckpt = ""
+    # ckpt = "Results/ppo_v1"
+    # ckpt += sorted([x for x in os.listdir(ckpt) if "ckpt" in x])[-1]
     env = Game(env_config)
-    rewards, ckpt = train_model(env, episodes=5, print_every=1, ckpt=ckpt)
+    rewards, ckpt = train_model(env, episodes=1000, print_every=10, ckpt=ckpt)
     plot(rewards)
     simulate(Game({'render_mode':"human"}), ckpt=ckpt)

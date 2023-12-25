@@ -17,9 +17,9 @@ class Game(gym.Env):
         self.fps = config.get('fps', 60)
         self.rewards = config.get('rewards', {
             'time_passing': 0.0,
-            'shoot_when_shooting': 0.0,
-            'hit_ceiling': 0.0,
-            'hit_ball': 0.0,
+            'shoot_when_shooting': -0.1,
+            'hit_ceiling': -0.1,
+            'hit_ball': 3.0,
             'pop_ball': 4.0,
             'finish_level': 100.0,
             'game_over': -20.0,
