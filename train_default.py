@@ -20,7 +20,7 @@ def get_module_spec(env, ckpt):
             module_class=PPOTorchRLModule,
             observation_space=env.observation_space,
             action_space=env.action_space,
-            model_config_dict={"fcnet_hiddens": [128, 512, 256]},
+            model_config_dict={"fcnet_hiddens": [128, 512, 512, 256]},
             catalog_class=PPOCatalog,
             load_state_path=ckpt
         )
@@ -30,7 +30,7 @@ def get_module_spec(env, ckpt):
             observation_space=env.observation_space,
             action_space=env.action_space,
             catalog_class=PPOCatalog,
-            model_config_dict={"fcnet_hiddens": [128, 512, 256]},
+            model_config_dict={"fcnet_hiddens": [128, 512, 512, 256]},
         )
 
 
@@ -51,11 +51,11 @@ def get_config(env, ckpt=""):
         )
         .framework("torch")
         .training(model={
-            "fcnet_hiddens": [128, 512, 256],
+            "fcnet_hiddens": [128, 512, 512, 256],
             "use_lstm": True,
-            "max_seq_len": 64,
+            "max_seq_len": 100,
             # Size of the LSTM cell.
-            "lstm_cell_size": 256,
+            "lstm_cell_size": 512,
             # Whether to feed a_{t-1} to LSTM (one-hot encoded if discrete).
             "lstm_use_prev_action": True,
             # Whether to feed r_{t-1} to LSTM.
@@ -63,6 +63,10 @@ def get_config(env, ckpt=""):
         })
         .exploration(
             explore=True,
+        )
+        .rollouts(
+            num_rollout_workers=10,
+            num_envs_per_worker=10,
         )
     )
     return config
