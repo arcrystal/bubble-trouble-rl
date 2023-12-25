@@ -97,26 +97,26 @@ def train_model(env, episodes=1000, print_every=10, ckpt=""):
         version = sum(name in filename for filename in os.listdir("Results/")) + 1
         path = os.path.join(os.getcwd(), f"Results/{name}_v{version}/")
 
-    start_time = time.time()
     for i in range(start_episode, episodes+start_episode):
         result = module.train()
         episode_reward_means.append(result['episode_reward_mean'])
         if i == start_episode:
             print(result)
         if i % print_every == 0:
-            curr_time = time.time() - start_time
-            avg_time = curr_time / (i-start_episode+1)
-            time_left = avg_time * (episodes+start_episode-i)
+            curr_iter_time = result['time_this_iter_s']
+            curr_tot_time = result['time_total_s']
+            time_left = curr_iter_time * (episodes+start_episode-i)
             expected_end = datetime.now() + timedelta(seconds=time_left)
-            h = int(curr_time // 3600)
-            m = int((curr_time - h * 3600) // 60)
-            s = round((curr_time - h * 3600 - m * 60))
+            d = int(curr_tot_time // 86400)
+            h = int((curr_tot_time - 86400 * d) // 3600)
+            m = int((curr_tot_time - 86400 * d - 3600 * h) // 60)
+            s = round(curr_tot_time - 86400 * d - 3600 * h - 60 * m)
             print(f"\n___________")
             print(f"Episode {i}/{episodes+start_episode-1}")
             print(f'  Mean reward   :', round(result['episode_reward_mean'], 4))
             print(f'  Mean steps    :', round(result['episode_len_mean'], 4))
-            print(f'  Avg runtime   :', round(avg_time, 4))
-            print(f'  Total runtime : {h}h {m}m {s}s')
+            print(f'  Iter runtime  :', round(curr_iter_time, 4))
+            print(f'  Total runtime : {d}d {h}h {m}m {s}s')
             print(f'  Expected end  : {expected_end.strftime("%H:%M:%S")}')
         if result['episode_reward_mean'] > max_reward:
             if not os.path.exists(path):
@@ -127,7 +127,7 @@ def train_model(env, episodes=1000, print_every=10, ckpt=""):
             result = module.save(checkpoint_dir=os.path.join(path, f"ckpt_e{prefix}{i}"))
             save_path = result.checkpoint.path
             print(f"\nCkpt saved    : {save_path}")
-            print(f"Mean reward   : {round(max_reward,4)}")
+            print(f"Mean reward     : {round(max_reward,4)}")
 
     module.stop()
     with open(path + 'rewards.txt', 'w') as f:
