@@ -6,7 +6,6 @@ from ray.rllib.core.rl_module.rl_module import SingleAgentRLModuleSpec
 from ray.rllib.algorithms.ppo.torch.ppo_torch_rl_module import (
     PPOTorchRLModule
 )
-from ray.rllib.algorithms.algorithm import Algorithm
 
 import torch
 from game import Game
@@ -49,7 +48,17 @@ def get_config(env, ckpt=""):
             },
         )
         .framework("torch")
-        .training(model={"fcnet_hiddens": [128, 512, 256]})
+        .training(model={
+            "fcnet_hiddens": [128, 512, 256],
+            "use_lstm": True,
+            "max_seq_len": 64,
+            # Size of the LSTM cell.
+            "lstm_cell_size": 256,
+            # Whether to feed a_{t-1} to LSTM (one-hot encoded if discrete).
+            "lstm_use_prev_action": True,
+            # Whether to feed r_{t-1} to LSTM.
+            "lstm_use_prev_reward": True,
+        })
         .exploration(
             explore=True,
             # exploration_config={
@@ -95,9 +104,12 @@ def train_model(env, episodes=1000, print_every=10, ckpt=""):
         end_idx = ckpt.index('/ckpt')
         version = int(ckpt[start_idx:end_idx])
         path = os.path.join(os.getcwd(), f"Results/{name}_v{version}/")
-        with open(path + 'max_reward.txt', 'r') as f:
-            max_reward = float(f.read(max_reward))
-            print("Loaded ckpt episode mean reward:", max_reward)
+        with open(path + 'rewards.txt', 'r') as f:
+            episode_reward_means = [float(x) for x in f.read().split(",") if x]
+            max_reward = max(episode_reward_means)
+            idx_max = episode_reward_means.index(max_reward)
+            episode_reward_means = episode_reward_means[:idx_max+1]
+            print("Ckpt highest mean reward:", max_reward)
     else:
         start_episode = 1
         version = sum(name in filename for filename in os.listdir("Results/")) + 1
@@ -108,10 +120,11 @@ def train_model(env, episodes=1000, print_every=10, ckpt=""):
         result = module.train()
         episode_reward_means.append(result['episode_reward_mean'])
         if i % print_every == 0:
-            print(f"\n___________\nEpisode {i}:")
-            print(f'Mean reward    :', round(result['episode_reward_mean'], 4))
-            print(f'Avg Runtime    :', round((time.time() - start_time) / i, 4))
-            print(f'Total Runtime  :', round(time.time() - start_time, 4))
+            print(f"\n___________")
+            print(f"Episode       : {i}/{episodes+start_episode-1}")
+            print(f'Mean reward   :', round(result['episode_reward_mean'], 4))
+            print(f'Avg Runtime   :', round((time.time() - start_time) / (i-start_episode+1), 4))
+            print(f'Total Runtime :', round(time.time() - start_time, 4))
         if result['episode_reward_mean'] > max_reward:
             if not os.path.exists(path):
                 os.mkdir(path)
@@ -124,23 +137,30 @@ def train_model(env, episodes=1000, print_every=10, ckpt=""):
             print(f"Mean reward    : {max_reward}")
 
     module.stop()
-    with open(path + 'max_reward.txt', 'w') as f:
-        print("\nMax reward:", max_reward)
-        f.write(str(max_reward))
+    with open(path + 'rewards.txt', 'w') as f:
+        for value in episode_reward_means:
+            f.write(str(value)+',')
 
     return episode_reward_means, save_path
 
 def plot(rewards):
-    name = "ppo"
-    version = sum(name in filename for filename in os.listdir("Results/")) + 1
+    version = int(sorted(os.listdir("Results"))[-1][-1])
     y = np.array(rewards)
     x = np.arange(len(rewards)) + 1
+    reward_max = max(rewards)
     plt.plot(x, y)
-    plt.axhline(y=0.0, color='r', linestyle='-')
+    plt.axhline(y=0.0, color='red', linestyle='-')
+    plt.scatter(x=[rewards.index(reward_max)+1],
+                y=[max(rewards)],
+                color='green')
+    plt.text(x=rewards.index(reward_max)+1,
+             y=reward_max + 5,
+             s=str(round(reward_max,4)),
+             color='green')
     plt.title("Mean Reward per Episode")
     plt.ylabel("Mean Reward")
     plt.xlabel("Episode")
-    plt.savefig(f"Plots/ppo_v{version}.png")
+    plt.savefig(f"Results/ppo_v{version}/plot.png")
 
 def simulate(env, ckpt):
     spec = get_module_spec(env, ckpt)
@@ -167,8 +187,9 @@ def simulate(env, ckpt):
 
 if __name__ == "__main__":
     env_config = {'render_mode': None}
-    ckpt='Results/ppo_v6/ckpt_e003500'
+    ckpt = "Results/ppo_v7/"
+    ckpt += sorted([x for x in os.listdir(ckpt) if "ckpt" in x])[-1]
     env = Game(env_config)
-    rewards, ckpt = train_model(env, episodes=5000, print_every=10, ckpt=ckpt)
+    rewards, ckpt = train_model(env, episodes=5, print_every=1, ckpt=ckpt)
     plot(rewards)
     simulate(Game({'render_mode':"human"}), ckpt=ckpt)

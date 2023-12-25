@@ -20,9 +20,9 @@ class Game(gym.Env):
             'shoot_when_shooting': 0.0,
             'hit_ceiling': 0.0,
             'hit_ball': 0.0,
-            'pop_ball': 0.0,
+            'pop_ball': 4.0,
             'finish_level': 100.0,
-            'game_over': 0.0,
+            'game_over': -20.0,
             'nearest_ball': -0.001
         })
         self.width = config.get('width', 720)
