@@ -86,7 +86,7 @@ def train_model(env, episodes=25, print_every=10, ckpt=""):
     ppo = get_config(env, ckpt).build()
     save_path = ""
     episode_reward_means = []
-    max_reward = -999999
+    max_reward = -50
     start = time.time()
     for i in range(1, episodes+1):
         result = ppo.train()
@@ -101,6 +101,7 @@ def train_model(env, episodes=25, print_every=10, ckpt=""):
             result = ppo.save(os.path.join(os.getcwd(), f"Results/{name}_v{version}"))
             save_path = result.checkpoint.path
             print(f"Ckpt saved  : {save_path}")
+            print(f"Mean reward : {max_reward}")
 
     return episode_reward_means, save_path
 
