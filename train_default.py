@@ -235,15 +235,15 @@ def simulate(ckpt, n_sims=1, model_type="medium"):
 if __name__ == "__main__":
     env_config = {
         'render_mode': None,
-        'fps': 48
+        'fps': 60
     }
     game = Game(env_config)
     rewards, checkpoint = train_model(
         env=game,
-        episodes=10,
+        episodes=2000,
         print_every=10,
         ckpt="",
         model_type='large'
     )
     plot(rewards, game)
-    simulate(checkpoint, n_sims=2, model_type="large")
+    simulate(checkpoint, n_sims=3, model_type="large")

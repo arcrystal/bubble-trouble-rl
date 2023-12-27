@@ -103,9 +103,14 @@ class Game(gym.Env):
         self.agent.laser.update()
         self.balls.update()
 
-        distance_reward = self.nearestBall() * self.rewards['distance_reward']
-        reward += distance_reward
-        info['distance_reward'] = distance_reward
+        nearest_ball = self.nearest_ball()
+        if abs(nearest_ball) > 0.2 * self.width:
+            if nearest_ball > 0:
+                if direction == Direction.RIGHT:
+                    reward += 1
+            else:
+                if direction == Direction.LEFT:
+                    reward += 1
 
         laser_sim = self.agent.laser._will_collide(self.balls, self.agent.rect.centerx)
         laser_sim *= self.rewards['laser_sim']
@@ -149,17 +154,15 @@ class Game(gym.Env):
 
         return self.observation, reward, terminated, truncated, info
 
-    def nearestBall(self):
+    def nearest_ball(self):
         dist = self.width
         playerX = self.agent.rect.centerx
         for ball in self.balls:
-            d1 = abs(ball.rect.x - playerX)
-            d2 = abs(ball.rect.centerx + ball.radius - playerX)
-            d = min(d1, d2)
-            if d < dist:
+            d = ball.rect.centerx - playerX
+            if abs(d) < abs(dist):
                 dist = d
 
-        return dist if dist > 100 else 0 # if player is close to ball, reward will be positive
+        return dist
 
     def render(self):
         if self.render_mode in ("rgb_array", "human"):
