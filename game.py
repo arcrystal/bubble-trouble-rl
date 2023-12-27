@@ -5,31 +5,31 @@ import pygame
 from direction import Direction
 from laser import Laser
 from levels import Levels
-from player import Player
+from agent import Agent
+import time
 
 
 class Game(gym.Env):
 
     def __init__(self, config):
+        self.name = "1D"
         self.steps = 0
-        self.print_stats = config.get('print_stats', False)
         self.render_mode = config.get('render_mode', 'human')
         self.fps = config.get('fps', 60)
-        self.rewards = config.get('rewards', {
+        self.rewards = {
             'time_passing': 0.0, # every step
-            'shoot_when_shooting': -0.01, # every step
-            'hit_ball': 3.0, # up to 16x per episode
-            'pop_ball': 4.0, # up to 8x per episode
-            'finish_level': 50.0, # up to 8x per episode
-            'game_over': -100.0, # once per episode
-            'nearest_ball': -0.001, # every step
-            'laser_sim': 0.25 # every step
-        })
+            'shoot_when_shooting': -0.0, # every step
+            'hit_ball': 1.0, # up to 16x per episode
+            'pop_ball': 1.0, # up to 8x per episode
+            'finish_level': 25.0, # up to 8x per episode
+            'game_over': -0.0, # once per episode
+            'distance_reward': -0.0001, # every step
+            'laser_sim': 0.1 # every step
+        }
         self.width = config.get('width', 720)
         self.window = None
         self.clock = None
         self.height = round(self.width / 1.87) # 385
-        self.info = {}
 
         if self.render_mode == "human":
             pygame.init()
@@ -38,14 +38,15 @@ class Game(gym.Env):
             self.clock = pygame.time.Clock()
 
         # Initialize game sprites
-        self.agent = Player(self.width / 2, self.height, self.width, self.fps)
-        self.agent.laser = Laser(self.width, self.height, self.fps)
+        self.agent = Agent(self.width / 2, self.height, self.width, self.fps)
+        self.agent.laser = Laser(self.width, self.height, self.agent.rect.height, self.fps)
         self.levels = Levels(self.width, self.height, self.fps)
         self.level = 1
         self.balls = self.levels.get(1)
 
         self.action_space = gym.spaces.Discrete(4)
-        self.observation_space = spaces.Box(low=0.0, high=1.0, shape=(50,))
+        self.observation_space = spaces.Box(low=0.0, high=1.0, shape=(82,))
+        self.observation = np.zeros(self.observation_space.shape)
 
         self._action_to_direction = {
             0: Direction.LEFT,
@@ -63,18 +64,18 @@ class Game(gym.Env):
         # Reset the level
         self.level = 1
         self.balls = self.levels.get(self.level)
-        observation = self._get_obs()
-        self.info = {}
+        self._update_obs()
         if self.render_mode == "human":
             self._render_frame()
 
-        info = self._get_info()
-        return observation, info
+        return self.observation, self._get_info()
 
     def step(self, action=None):
         reward = self.rewards['time_passing']
         terminated = False
         truncated = False
+        info = {}
+        info = self._get_info()
 
         if self.render_mode == "human" and action is None:
             for event in pygame.event.get():
@@ -102,22 +103,22 @@ class Game(gym.Env):
         self.agent.laser.update()
         self.balls.update()
 
-        distanceReward = self.nearestBall() * self.rewards['nearest_ball']
-        reward += distanceReward
-        laser_sim = self.agent.laser._will_collide(self.balls, self.agent.rect.centerx, self.agent.rect.top)
+        distance_reward = self.nearestBall() * self.rewards['distance_reward']
+        reward += distance_reward
+        info['distance_reward'] = distance_reward
+
+        laser_sim = self.agent.laser._will_collide(self.balls, self.agent.rect.centerx)
         laser_sim *= self.rewards['laser_sim']
-        if direction == Direction.SHOOT:
+        if direction == Direction.SHOOT or self.agent.laser.active:
             # If we shoot the laser, we should hit a ball
             reward += laser_sim
+            info['laser_sim'] = laser_sim
         elif not self.agent.laser.active:
             # If there isn't laser being shot, we should
             # penalized if it would hit.
-            reward -= max(laser_sim, 0)
-
-        if self.print_stats:
-            print("Nearest ball:", distanceReward)
-            print("Laser sim:", reward - distanceReward)
-
+            value = -max(laser_sim, 0)
+            reward += value
+            info['laser_sim'] = value
 
         for ball in self.balls:
             hit = self.agent.laser.collidesWith(ball)
@@ -130,21 +131,23 @@ class Game(gym.Env):
                 else:
                     reward += self.rewards['pop_ball']
                 if len(self.balls) == 0:
+                    if self.render_mode == 'human': time.sleep(1)
                     reward += self.rewards['finish_level']
+                    info['finish_level'] = self.rewards['finish_level']
                     self.level += 1
                     self.balls = self.levels.get(self.level)
                     self.balls.update()
             elif pygame.sprite.collide_mask(self.agent, ball):
                 reward += self.rewards['game_over']
+                info['game_over'] = self.rewards['game_over']
                 terminated = True
 
         observation = self._get_obs()
-        info = self._get_info()
 
         if self.render_mode == "human":
             self._render_frame()
 
-        return observation, reward, terminated, truncated, info
+        return self.observation, reward, terminated, truncated, info
 
     def nearestBall(self):
         dist = self.width
@@ -156,7 +159,7 @@ class Game(gym.Env):
             if d < dist:
                 dist = d
 
-        return dist - 50 # if player is close to ball, reward will be positive
+        return dist if dist > 100 else 0 # if player is close to ball, reward will be positive
 
     def render(self):
         if self.render_mode in ("rgb_array", "human"):
@@ -165,8 +168,8 @@ class Game(gym.Env):
     def _render_frame(self):
         canvas = pygame.Surface((self.width, self.height))
         canvas.fill((0, 0, 0))
-        self.agent.draw(canvas)
         self.agent.laser.draw(canvas)
+        self.agent.draw(canvas)
         for ball in self.balls:
             ball.draw(canvas)
 
@@ -192,28 +195,48 @@ class Game(gym.Env):
                 return
 
     def _get_obs(self):
-        ball_sizes = []
-        ball_X = []
-        ball_Y = []
-        for ball in self.balls:
-            ball_sizes.append(ball.radius / min(self.width, self.height))
-            ball_X.append(ball.rect.centerx / self.width)
-            ball_Y.append(max(ball.rect.centery / self.height, 0))
+        if len(self.balls) == 0:
+            for i in range(16):
+                ball_sizes.append(0.0)
+                ball_X.append(0.0)
+                ball_Y.append(0.0)
+                ball_xspeed.append(0.0)
+                ball_yspeed.append(0.0)
+        else:
+            ball_sizes = []
+            ball_X = []
+            ball_Y = []
+            ball_xspeed = []
+            ball_yspeed = []
+            for ball in self.balls:
+                ball_sizes.append(ball.radius / min(self.width, self.height))
+                ball_X.append(ball.rect.centerx / self.width)
+                ball_Y.append(max(ball.rect.centery / self.height, 0))
+                ball_xspeed.append(ball.xspeed / self.width)
+                ball_yspeed.append(ball.yspeed / self.height)
 
-        for i in range(len(self.balls), 16):
-            ball_sizes.append(0.0)
-            ball_X.append(0.0)
-            ball_Y.append(0.0)
+            n = len(ball_sizes)
+            not_filled = n < 16
+            while not_filled:
+                for ball_idx in range(n):
+                    ball_sizes.append(ball_sizes[ball_idx])
+                    ball_X.append(ball_X[ball_idx])
+                    ball_Y.append(ball_Y[ball_idx])
+                    ball_xspeed.append(ball_xspeed[ball_idx])
+                    ball_yspeed.append(ball_yspeed[ball_idx])
+                    if len(ball_sizes) == 16:
+                        not_filled = False
+                        break
 
-        obs_list = (ball_sizes + ball_X + ball_Y
+        obs_list = (ball_sizes + ball_X + ball_Y + ball_xspeed + ball_yspeed
                     + [self.agent.laser.length / self.height,
                        self.agent.rect.centerx / self.width])
 
-        obs = np.array(obs_list, dtype=np.float32)
-        if not self.observation_space.contains(obs):
-            print(f"Observation space does not contain this observation:\n{obs.tolist()}")
+        return np.array(obs_list, dtype=np.float32)
 
-        return obs
+    def _update_obs(self):
+        self.observation = self._get_obs()
+
     def _get_info(self):
-        return self.info
+        return {key:0 for key, val in self.rewards.items()}
 

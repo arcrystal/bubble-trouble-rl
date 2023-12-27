@@ -5,12 +5,12 @@ class AbstractBall(pygame.sprite.Sprite):
     def __init__(self, x, y, display_width, display_height, color, fps=36, right=True):
         super().__init__()
         self.color = color
-        radius, max_yspeed, yacc = self.load_properties(display_width)
+        radius, max_yspeed, yacc = self.load_properties(display_height, display_width)
         self.radius = radius
         self.fps = fps
         self.x = x
         self.y = y
-        self.xspeed = display_width / 9.43333 * (1 if right else -1)
+        self.xspeed = display_width / 9.4 * (1 if right else -1)
         self.yspeed = 0
         self.max_yspeed = max_yspeed
         self.yacc = yacc
@@ -22,7 +22,7 @@ class AbstractBall(pygame.sprite.Sprite):
         pygame.draw.circle(surface, color, (self.radius, self.radius), self.radius)
         self.mask = pygame.mask.from_surface(surface)
 
-    def load_properties(self, display_width):
+    def load_properties(self, display_height, display_width):
        return 0, 0, 0
 
     def pop(self):

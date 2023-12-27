@@ -32,10 +32,10 @@ calculate_vertical_motion(height_example, time_between_peaks_example)
 
 
 class BallLevel1(AbstractBall):
-    def load_properties(self, display_width):
-        radius = round(13 / 720 * display_width / 2)
-        bounce_height = round(66 / 720 * display_width)
-        bounce_time = 1.2667
+    def load_properties(self, display_height, display_width):
+        radius = round(5 / 550 * display_width)
+        bounce_height = round(48 / 290 * display_height)
+        bounce_time = 1.13
         yacc, max_speed = calculate_vertical_motion(bounce_height, bounce_time)
         return radius, max_speed, yacc
 
@@ -44,10 +44,10 @@ class BallLevel1(AbstractBall):
 
 
 class BallLevel2(AbstractBall):
-    def load_properties(self, display_width):
-        radius = round(26 / 720 * display_width / 2)
-        bounce_height = round(133 / 720 * display_width)
-        bounce_time = 1.6667
+    def load_properties(self, display_height, display_width):
+        radius = round(9 / 550 * display_width)
+        bounce_height = round(102 / 290 * display_height)
+        bounce_time = 1.61
         yacc, max_speed = calculate_vertical_motion(bounce_height, bounce_time)
         return radius, max_speed, yacc
 
@@ -58,10 +58,10 @@ class BallLevel2(AbstractBall):
 
 
 class BallLevel3(AbstractBall):
-    def load_properties(self, display_width):
-        radius = round(46 / 720 * display_width / 2)
-        bounce_height = round(165 / 720 * display_width)
-        bounce_time = 1.9333
+    def load_properties(self, display_height, display_width):
+        radius = round(17 / 550 * display_width)
+        bounce_height = round(125 / 290 * display_height)
+        bounce_time = 1.78
         yacc, max_speed = calculate_vertical_motion(bounce_height, bounce_time)
         return radius, max_speed, yacc
 
@@ -72,10 +72,10 @@ class BallLevel3(AbstractBall):
 
 
 class BallLevel4(AbstractBall):
-    def load_properties(self, display_width):
-        radius = round(67 / 720 * display_width / 2)
-        bounce_height = round(195 / 720 * display_width)
-        bounce_time = -1
+    def load_properties(self, display_height, display_width):
+        radius = round(25 / 550 * display_width)
+        bounce_height = round(149 / 290 * display_height)
+        bounce_time = 1.96
         yacc, max_speed = calculate_vertical_motion(bounce_height, bounce_time)
         return radius, max_speed, yacc
 

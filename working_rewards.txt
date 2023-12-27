@@ -1,0 +1,21 @@
+self.rewards = {
+    'time_passing': 0.0, # every step
+    'shoot_when_shooting': -0.0, # every step
+    'hit_ball': 0.0, # up to 16x per episode
+    'pop_ball': 0.0, # up to 8x per episode
+    'finish_level': 25.0, # up to 8x per episode
+    'game_over': -15.0, # once per episode
+    'distance_reward': -0.0001, # every step
+    'laser_sim': 0.1 # every step
+}
+
+self.rewards = {
+    'time_passing': 0.0,
+    'shoot_when_shooting': -0.0,
+    'hit_ball': 0.0,
+    'pop_ball': 0.0,
+    'finish_level': 10.0,
+    'game_over': -10.0,
+    'distance_reward': -0.0,
+    'laser_sim': 0.0
+}
