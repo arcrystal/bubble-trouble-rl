@@ -15,6 +15,9 @@ import os
 from datetime import datetime, timedelta
 from pprint import pprint
 
+# Uses the M1 peformance cores instead of the efficiency cores
+os.setpriority(os.PRIO_PROCESS, os.getpid(), 1)
+
 
 def get_module_spec(env, ckpt, model_type="medium"):
     if isinstance(env, Game) or isinstance(env, Game2DFlat):
@@ -22,7 +25,7 @@ def get_module_spec(env, ckpt, model_type="medium"):
         if model_type=="small":
             fcnet_hidden = [128, 128]
         elif model_type== "medium":
-            fcnet_hidden = [256, 256, 256]
+            fcnet_hidden = [256, 256]
         elif model_type == "large":
             fcnet_hidden = [256, 1024, 512]
     elif isinstance(env, Game2D):
@@ -78,7 +81,7 @@ def get_config(env, ckpt="", model_type='fcnet'):
         .rollouts(
             num_rollout_workers=10,
             num_envs_per_worker=1,
-            rollout_fragment_length=200,
+            rollout_fragment_length=1000,
         )
         .environment(
             env.__class__,
@@ -88,7 +91,7 @@ def get_config(env, ckpt="", model_type='fcnet'):
             }
         )
         .training(
-            train_batch_size=2000,
+            train_batch_size=10000,
             model={
                 "fcnet_hiddens": [256, 256, 256],
                 "conv_filters": None,
@@ -240,10 +243,11 @@ if __name__ == "__main__":
     game = Game(env_config)
     rewards, checkpoint = train_model(
         env=game,
-        episodes=2000,
-        print_every=10,
+        episodes=15000,
+        print_every=15,
         ckpt="",
-        model_type='large'
+        model_type='small'
     )
     plot(rewards, game)
-    simulate(checkpoint, n_sims=3, model_type="large")
+    # checkpoint = "Results/ppo_1D_v11/checkpoint-000450"
+    simulate(checkpoint, n_sims=5, model_type="small")

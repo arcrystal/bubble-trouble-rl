@@ -9,6 +9,7 @@ from agent import Agent
 import time
 
 
+
 class Game(gym.Env):
 
     def __init__(self, config):
@@ -19,17 +20,25 @@ class Game(gym.Env):
         self.rewards = {
             'time_passing': 0.0, # every step
             'shoot_when_shooting': -0.0, # every step
-            'hit_ball': 1.0, # up to 16x per episode
-            'pop_ball': 1.0, # up to 8x per episode
-            'finish_level': 25.0, # up to 8x per episode
-            'game_over': -0.0, # once per episode
-            'distance_reward': -0.0001, # every step
-            'laser_sim': 0.1 # every step
+            'hit_ball': 0.1, # up to 16x per episode
+            'pop_ball': 0.2, # up to 8x per episode
+            'finish_level': 10.0, # up to 8x per episode
+            'game_over': -10.0, # once per episode
+            'laser_sim': 0.0 # every step
         }
-        self.width = config.get('width', 720)
         self.window = None
         self.clock = None
+        self.width = config.get('width', 720)
         self.height = round(self.width / 1.87) # 385
+        pygame.font.init()
+        font = pygame.font.Font('freesansbold.ttf', 32)
+        self.win = font.render('Level Complete!', True,
+                               (0,255,0), (0,0,100))
+        self.lose = font.render('Game Over...', True,
+                                (240,20,20), (80,0,80))
+        self.textRect = self.win.get_rect()
+        self.textRect.centerx = self.width / 2
+        self.textRect.centery = self.height / 3
 
         if self.render_mode == "human":
             pygame.init()
@@ -41,8 +50,8 @@ class Game(gym.Env):
         self.agent = Agent(self.width / 2, self.height, self.width, self.fps)
         self.agent.laser = Laser(self.width, self.height, self.agent.rect.height, self.fps)
         self.levels = Levels(self.width, self.height, self.fps)
-        self.level = 1
-        self.balls = self.levels.get(1)
+        self.level = 5
+        self.balls = self.levels.get(5)
 
         self.action_space = gym.spaces.Discrete(4)
         self.observation_space = spaces.Box(low=0.0, high=1.0, shape=(82,))
@@ -62,7 +71,7 @@ class Game(gym.Env):
         self.agent.direction = Direction.STILL
         self.agent.laser.deactivate()
         # Reset the level
-        self.level = 1
+        self.level = 5
         self.balls = self.levels.get(self.level)
         self._update_obs()
         if self.render_mode == "human":
@@ -75,12 +84,8 @@ class Game(gym.Env):
         terminated = False
         truncated = False
         info = {}
-        info = self._get_info()
-
         if self.render_mode == "human" and action is None:
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    terminated = True
+            terminated = any(e.type == pygame.QUIT for e in pygame.event.get())
 
             keys = pygame.key.get_pressed()
             action = 3
@@ -91,39 +96,31 @@ class Game(gym.Env):
             if keys[pygame.K_UP]:
                 action = 2
 
-        # Handle laser updates and rewards
-        laser_active = self.agent.laser.active
-        direction = self._action_to_direction[action]
-
-        if laser_active and direction == Direction.SHOOT:
-            reward += self.rewards['shoot_when_shooting']
-
         # Update agent, laser, and ball sprites
+        direction = self._action_to_direction[action]
         self.agent.step(direction)
         self.agent.laser.update()
         self.balls.update()
 
         nearest_ball = self.nearest_ball()
-        if abs(nearest_ball) > 0.2 * self.width:
-            if nearest_ball > 0:
-                if direction == Direction.RIGHT:
-                    reward += 1
-            else:
-                if direction == Direction.LEFT:
-                    reward += 1
-
-        laser_sim = self.agent.laser._will_collide(self.balls, self.agent.rect.centerx)
-        laser_sim *= self.rewards['laser_sim']
-        if direction == Direction.SHOOT or self.agent.laser.active:
-            # If we shoot the laser, we should hit a ball
-            reward += laser_sim
-            info['laser_sim'] = laser_sim
-        elif not self.agent.laser.active:
-            # If there isn't laser being shot, we should
-            # penalized if it would hit.
-            value = -max(laser_sim, 0)
-            reward += value
-            info['laser_sim'] = value
+        if abs(nearest_ball) > 0.25 * self.width:
+            if not self.agent.laser.active:
+                if direction == Direction.SHOOT:
+                    reward -= 0.01
+                elif nearest_ball > 0:
+                    if direction == Direction.RIGHT:
+                        reward += 0.005
+                else:
+                    if direction == Direction.LEFT:
+                        reward += 0.005
+        #
+        # laser_sim = self.agent.laser._will_collide(self.balls, self.agent.rect.centerx)
+        # # If we shoot the laser, we should hit a ball
+        # if direction == Direction.SHOOT or self.agent.laser.active:
+        #     reward += laser_sim
+        # # Penalize when laser isn't shot but would have hit.
+        # elif not self.agent.laser.active:
+        #     reward -= max(laser_sim, 0)
 
         for ball in self.balls:
             hit = self.agent.laser.collidesWith(ball)
@@ -136,15 +133,22 @@ class Game(gym.Env):
                 else:
                     reward += self.rewards['pop_ball']
                 if len(self.balls) == 0:
-                    if self.render_mode == 'human': time.sleep(1)
+                    if self.render_mode == 'human':
+                        self.window.blit(self.win, self.textRect)
+                        pygame.display.update()
+                        time.sleep(1)
+
                     reward += self.rewards['finish_level']
-                    info['finish_level'] = self.rewards['finish_level']
                     self.level += 1
                     self.balls = self.levels.get(self.level)
                     self.balls.update()
             elif pygame.sprite.collide_mask(self.agent, ball):
+                if self.render_mode == "human":
+                    self.window.blit(self.lose, self.textRect)
+                    pygame.display.update()
+                    time.sleep(1)
+
                 reward += self.rewards['game_over']
-                info['game_over'] = self.rewards['game_over']
                 terminated = True
 
         observation = self._get_obs()
