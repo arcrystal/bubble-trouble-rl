@@ -130,6 +130,9 @@ dmypy.json
 
 # Added
 *.DS_Store*
-Backgrounds/
-Backgrounds/*.jpg
-*.pptx
+Random/
+Results/
+*.mov
+*.docx
+working_rewards.txt
+

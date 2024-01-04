@@ -1,249 +1,255 @@
-import os
-FPS = float(os.environ.get('FPS'))
-DISPLAY_WIDTH = float(os.environ.get('DISPLAY_WIDTH'))
-TIMESTEP = 1 / FPS
-DISPLAY_HEIGHT = DISPLAY_WIDTH * 0.5337 # Default 475
+import random
 
-import pygame
-from player import Player
-from ball import Ball
-from floor import Floor
-from laser import Laser
-from levels import LEVELS
-
-import gym
-from gym.spaces import Discrete, Dict, Box
-
+import gymnasium as gym
+from gymnasium import spaces
 import numpy as np
+import pygame
+from direction import Direction
+from laser import Laser
+from levels import Levels
+from agent import Agent
+import time
+
+
 
 class Game(gym.Env):
-    """
-    Game object for falling circles.
-    """
-    WHITE  = (255, 255, 255)
-    BLACK  = (  0,   0,   0)
-    RED    = (255,   0,   0)
-    GREEN  = (  0, 255,   0)
-    BLUE   = (  0,   0, 255)
-    ORANGE = (255, 255,   0)
-    YELLOW = (  0, 255, 255)
-    LVL_TIME = [20000, 35000, 50000, 65000, 80000, 90000, 100000, 100000]
 
-    def __init__(self):
-        # PYGAME
-        pygame.init()
-        pygame.mixer.init()
-        # Initialize gameplay window
-        self.screen = pygame.display.set_mode((DISPLAY_WIDTH, DISPLAY_HEIGHT+27+10)) # + platform_h + timer_h
-        pygame.display.set_caption("Ball Breaker")
-        # Initialize gameplay vars
-        self.score = 0
-        self.level = 1
-        self.font = pygame.font.SysFont('Calibri', 25, True, True)
-        self.text = self.font.render(f"Score: {self.score}", True, Game.RED)
-        self.screen.blit(self.text, (25, 25))
-        self.backgrounds = [pygame.image.load("Backgrounds/bluepink.jpg").convert()] * len(Game.LVL_TIME)
+    def __init__(self, config):
+        self.name = "1D"
+        self.steps = 0
+        self.render_mode = config.get('render_mode', 'human')
+        self.fps = config.get('fps', 60)
+        self.rewards = {
+            'time_passing': 0.0, # every step
+            'shoot_when_shooting': -0.0, # every step
+            'hit_ball': 0.1, # up to 16x per episode
+            'pop_ball': 0.2, # up to 8x per episode
+            'finish_level': 1.0, # up to 8x per episode
+            'game_over': -0.0, # once per episode
+            'laser_sim': 0.01 # every step
+        }
+        self.window = None
+        self.clock = None
+        self.width = config.get('width', 720)
+        self.height = round(self.width / 1.87) # 385
+        pygame.font.init()
+        font = pygame.font.Font('freesansbold.ttf', 32)
+        self.win = font.render('Level Complete!', True,
+                               (0,255,0), (0,0,100))
+        self.lose = font.render('Game Over...', True,
+                                (240,20,20), (80,0,80))
+        self.textRect = self.win.get_rect()
+        self.textRect.centerx = self.width / 2
+        self.textRect.centery = self.height / 3
 
-        # Open AI GYM ENV
-        self.observation_space = Dict({
-            "posX": Discrete(int(DISPLAY_WIDTH)),
-            "velX": Discrete(3),
-            "balls": Box(
-                low=np.array([0., 0.]),
-                high=np.array([int(DISPLAY_WIDTH), int(DISPLAY_HEIGHT)]),
-                dtype=np.uint8)
-        })
-        self.action_space = gym.spaces.Discrete(3)
+        if self.render_mode == "human":
+            pygame.init()
+            pygame.display.init()
+            self.window = pygame.display.set_mode((self.width, self.height))
+            self.clock = pygame.time.Clock()
 
-    def init_level(self, lvl, lives=None, newlvl=True):
-        """
-        Returns:
-            lvlsprites (pygame.sprite.Group): contains all sprites
-            player: (pygame.sprite.Sprite): player sprite
-            balls (pygame.sprite.Group): contains all ball sprites
-            platform: (pygame.sprite.Sprite): platform sprite
-            background: (pygame.Surface): background from game screen
-            timer (float): keeps track of time elapsed
-            timeleft (float): keeps track of time with respect to display size
-        """
-        # Sprite groups for all sprites and balls
+        # Initialize game sprites
+        self.rand_lvl = random.Random()
+        self.agent = Agent(self.width / 2, self.height, self.width, self.fps)
+        self.agent.laser = Laser(self.width, self.height, self.agent.rect.height, self.fps)
+        self.levels = Levels(self.width, self.height, self.fps)
+        self.level = self.rand_lvl.randint(1,7)
+        self.balls = self.levels.get(self.level)
 
-        # Creates sprites
-        ball_sprites = LEVELS[lvl]
-        player = Player()
-        platform = Floor()
+        self.action_space = gym.spaces.Discrete(4)
+        self.observation_space = spaces.Box(low=0.0, high=1.0, shape=(82,))
+        self.observation = np.zeros(self.observation_space.shape)
 
-        # Convert sprites to the same pixel format used for final display
-        for sprites in ball_sprites:
-            for color, sprite in sprites.SPRITES.items():
-                sprites.SPRITES[color] = sprite.convert_alpha()
+        self._action_to_direction = {
+            0: Direction.LEFT,
+            1: Direction.RIGHT,
+            2: Direction.SHOOT,
+            3: Direction.STILL,
+        }
 
-        for key, sprite in player.SPRITES.items():
-                player.SPRITES[key] = sprite.convert_alpha()
+    def reset(self, seed=None, options=None):
+        super().reset(seed=seed)
+        # Reset the player
+        self.agent.rect.midbottom = (self.width / 2, self.height)
+        self.agent.direction = Direction.STILL
+        self.agent.laser.deactivate()
+        # Reset the level
+        self.level = self.rand_lvl.randint(1,7)
+        self.balls = self.levels.randomize()#self.levels.get(self.level)
+        self._update_obs()
+        if self.render_mode == "human":
+            self._render_frame()
 
-        platform.image = platform.image.convert_alpha()
+        return self.observation, self._get_info()
 
-        # Create sprite groups and add sprites
-        balls = pygame.sprite.Group()
-        lvlsprites = pygame.sprite.Group()
-        balls.add(ball_sprites)
-        lvlsprites.add(player)
-        lvlsprites.add(balls)
-        lvlsprites.add(platform)
+    def step(self, action=None):
+        reward = self.rewards['time_passing']
+        terminated = False
+        truncated = False
+        info = {}
+        if self.render_mode == "human" and action is None:
+            terminated = any(e.type == pygame.QUIT for e in pygame.event.get())
 
-        # Render start screen
-        lvl_font = self.font.render(f'Level {lvl}', True, Game.GREEN, Game.BLUE)
-        lvl_font_rect = lvl_font.get_rect()
-        lvl_font_rect.center = DISPLAY_WIDTH / 2, DISPLAY_HEIGHT / 10
-        lives_font = self.font.render(f'Lives: {lives}', True, Game.RED)
-        lives_font_rect = lives_font.get_rect()
-        lives_font_rect.center = DISPLAY_WIDTH / 2, DISPLAY_HEIGHT / 10 + 50
-        self.screen.blit(lives_font, lives_font_rect)
-        background = self.backgrounds[lvl]
-        start_ticks=pygame.time.get_ticks()
-        pygame.event.get()
-        # Draw start countdown
-        while True:
-            ticks = pygame.time.get_ticks() - start_ticks
-            if ticks > 3000:
-                break
+            keys = pygame.key.get_pressed()
+            action = 3
+            if keys[pygame.K_LEFT]:
+                action = 0
+            if keys[pygame.K_RIGHT]:
+                action = 1
+            if keys[pygame.K_UP]:
+                action = 2
 
-            if ticks % 100 == 0:
-                self.screen.blit(background, (0, 0))
-                lvlsprites.draw(self.screen)
-                text = self.font.render(f"Starting in: {round((3000-ticks)/1000,1)}", True, Game.RED)
-                self.screen.blit(text, (DISPLAY_WIDTH / 2 - 10, 75))
-                pygame.display.update()
+        # Update agent, laser, and ball sprites
+        direction = self._action_to_direction[action]
+        self.agent.step(direction)
+        self.agent.laser.update()
+        self.balls.update()
 
-        return lvlsprites, player, balls, platform, background, 0, DISPLAY_WIDTH
+        nearest_ball = self.nearest_ball()
+        if abs(nearest_ball) > 0.25 * self.width:
+            if not self.agent.laser.active:
+                if direction == Direction.SHOOT:
+                    reward -= 0.01
+                elif nearest_ball > 0:
+                    if direction == Direction.RIGHT:
+                        reward += 0.005
+                else:
+                    if direction == Direction.LEFT:
+                        reward += 0.005
 
-    def play_music(self, filepath):
-        pygame.mixer.music.load(filepath)
-        pygame.mixer.music.play(-1)
+        for ball in self.balls:
+            hit = self.agent.laser.collidesWith(ball)
+            if hit:
+                new_balls = ball.pop()
+                self.agent.laser.deactivate()
+                if new_balls:
+                    reward += self.rewards['hit_ball']
+                    self.balls.add(new_balls)
+                else:
+                    reward += self.rewards['pop_ball']
+                if len(self.balls) == 0:
+                    if self.render_mode == 'human':
+                        self.window.blit(self.win, self.textRect)
+                        pygame.display.update()
+                        time.sleep(1)
 
-    def load_background(self, background):
-        """
-        Loads a pygame image as the screen's background.
+                    reward += self.rewards['finish_level']
+                    self.level += 1
+                    #self.balls = self.levels.get(self.level)
+                    self.balls = self.levels.randomize()
+                    self.balls.update()
+            elif pygame.sprite.collide_mask(self.agent, ball):
+                if self.render_mode == "human":
+                    self.window.blit(self.lose, self.textRect)
+                    pygame.display.update()
+                    time.sleep(1)
 
-        Args:
-            background (pygame.Surface): raw pygame surface to load.
-        Returns:
-            Transformed pygame.Surface with the dimensions of the screen.
-        Raises:
-            None.
-        """
-        return pygame.transform.scale(background, (DISPLAY_WIDTH, DISPLAY_HEIGHT))
+                reward += self.rewards['game_over']
+                terminated = True
 
-    def draw_timer(self, timeleft):
-        pygame.draw.line(
-            self.screen, Game.BLACK,
-            (0, DISPLAY_HEIGHT+27),
-            (timeleft, DISPLAY_HEIGHT+27),
-            10)
+        # After updating balls, simulate laser
+        laser_sim = self.agent.laser._will_collide(self.balls, self.agent.rect.centerx)
+        shooting = direction == Direction.SHOOT
+        # If we are shooting the laser, we should hit a ball
+        if (laser_sim and shooting) or ((not laser_sim) and (not shooting)):
+            reward += self.rewards["laser_sim"]
+        # Penalize when laser isn't shot but would have hit.
+        else:
+            reward -= self.rewards["laser_sim"]
 
-    def collide(self, laser, ball):
-        if laser.rect.x < ball.x + ball.image.get_width() and laser.rect.x + laser.image.get_width() < ball.rect.x:
-            if laser.rect.y < ball.rect.y + ball.image.get_height():
-                return True
+        observation = self._get_obs()
 
-        return False
+        if self.render_mode == "human":
+            self._render_frame()
+
+        return self.observation, reward, terminated, truncated, info
+
+    def nearest_ball(self):
+        dist = self.width
+        playerX = self.agent.rect.centerx
+        for ball in self.balls:
+            d = ball.rect.centerx - playerX
+            if abs(d) < abs(dist):
+                dist = d
+
+        return dist
+
+    def render(self):
+        if self.render_mode in ("rgb_array", "human"):
+            return self._render_frame()
+
+    def _render_frame(self):
+        canvas = pygame.Surface((self.width, self.height))
+        canvas.fill((0, 0, 0))
+        self.agent.laser.draw(canvas)
+        self.agent.draw(canvas)
+        for ball in self.balls:
+            ball.draw(canvas)
+
+        if self.render_mode == "human":
+            self.window.blit(canvas, canvas.get_rect())
+            pygame.event.pump()
+            pygame.display.update()
+            self.clock.tick(self.fps)
+        else:
+            return np.transpose(
+                np.array(pygame.surfarray.pixels3d(canvas)), axes=(1, 0, 2)
+            )  # transpose to (1:row, 0:col, 2:channel) from (0:width, 1:height, 2:channel)
+
+    def close(self):
+        if self.window is not None:
+            pygame.display.quit()
+            pygame.quit()
 
     def play(self):
-        gameover = False
-        nextLevel = False
-        shooting = False
-        laser = None
-        clock = pygame.time.Clock()
-        lives = 5
-        for lvl in range(7, 8):
-            if gameover:
-                break
+        while (True):
+            observation, reward, terminated, truncated, info = self.step()
+            if terminated or truncated:
+                return
 
-            lvlsprites, player, balls, platform, background, timer, timeleft = self.init_level(lvl)
-            while not (nextLevel or gameover):
-                # Get pygame events
-                for event in pygame.event.get():
-                    if event.type == pygame.QUIT:
-                        exit()
+    def _get_obs(self):
+        if len(self.balls) == 0:
+            for i in range(16):
+                ball_sizes.append(0.0)
+                ball_X.append(0.0)
+                ball_Y.append(0.0)
+                ball_xspeed.append(0.0)
+                ball_yspeed.append(0.0)
+        else:
+            ball_sizes = []
+            ball_X = []
+            ball_Y = []
+            ball_xspeed = []
+            ball_yspeed = []
+            for ball in self.balls:
+                ball_sizes.append(ball.radius / min(self.width, self.height))
+                ball_X.append(max(min(ball.rect.centerx / self.width, 1), 0))
+                ball_Y.append(max(min(ball.rect.centery / self.height, 1), 0))
+                ball_xspeed.append(ball.xspeed / self.width)
+                ball_yspeed.append(ball.yspeed / self.height)
 
-                    if event.type == pygame.KEYDOWN:
-                        if event.key == pygame.K_LEFT:
-                            player.left()
-                        if event.key == pygame.K_RIGHT:
-                            player.right()
-                        if event.key == pygame.K_UP and not shooting:
-                            shooting = True
-                            laser = Laser(player.rect.centerx)
-                        if event.key == pygame.K_i:
-                            pygame.image.save(self.screen, "screenshot.png")
-
-                    if event.type == pygame.KEYUP:
-                        if event.key == pygame.K_LEFT and player.xspeed < 0:
-                            player.stop()
-                        if event.key == pygame.K_RIGHT and player.xspeed > 0:
-                            player.stop()
-
-                # Draw and update screen
-                self.screen.blit(background, (0, 0))
-
-                # Get collision updates
-                for ball in balls:
-                    if pygame.sprite.collide_mask(player, ball):
-                        lives -= 1
-                        print("Lost life.", lives, "left.")
-                        if lives == 0:
-                            print("You lose.")
-                            gameover = True
-                            break
-
-                        shooting = False
-                        lvlsprites, player, balls, platform, background, timer, timeleft \
-                            = self.init_level(lvl, lives, False)
+            n = len(ball_sizes)
+            not_filled = n < 16
+            while not_filled:
+                for ball_idx in range(n):
+                    ball_sizes.append(ball_sizes[ball_idx])
+                    ball_X.append(ball_X[ball_idx])
+                    ball_Y.append(ball_Y[ball_idx])
+                    ball_xspeed.append(ball_xspeed[ball_idx])
+                    ball_yspeed.append(ball_yspeed[ball_idx])
+                    if len(ball_sizes) == 16:
+                        not_filled = False
                         break
 
-                    if shooting:
-                        laser.update()
-                        if pygame.sprite.collide_mask(laser, ball):
-                            print("Laser pop.")
-                            shooting = False
-                            pop_result = ball.pop()
-                            lvlsprites.remove(ball)
-                            balls.remove(ball)
-                            if pop_result is not None:
-                                lvlsprites.add(pop_result)
-                                balls.add(pop_result)
-                                shooting = False
-                        elif laser.hitCeiling():
-                            shooting = False
-                        else:
-                            self.screen.blit(laser.curr, laser.rect)
+        obs_list = (ball_sizes + ball_X + ball_Y + ball_xspeed + ball_yspeed
+                    + [self.agent.laser.length / self.height,
+                       self.agent.rect.centerx / self.width])
 
-                    if pygame.sprite.collide_rect(ball, platform):
-                        ball.bounceY()
+        return np.array(obs_list).astype(np.float32)
 
-                self.draw_timer(timeleft)
-                lvlsprites.update()
-                lvlsprites.draw(self.screen)
-                pygame.display.update()
+    def _update_obs(self):
+        self.observation = self._get_obs()
 
-                clock.tick(FPS)
-                timer += clock.get_time()
-                timeleft = DISPLAY_WIDTH - DISPLAY_WIDTH / Game.LVL_TIME[lvl-1] * timer
-                if timeleft <= 0:
-                    lives -= 1
-                    print("Time ran out.")
-                    print("Lost life.", lives, "left.")
-                    if lives == 0:
-                        print("You lose.")
-                        gameover = True
-                        break
+    def _get_info(self):
+        return {key:0 for key, val in self.rewards.items()}
 
-                    shooting = False
-                    lvlsprites, player, balls, platform, background, timer, timeleft \
-                        = self.init_level(lvl, lives, False)
-                elif not balls:
-                    nextLevel = True
-
-            nextLevel = False
-
-        pygame.quit()
