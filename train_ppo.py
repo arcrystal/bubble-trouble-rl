@@ -76,13 +76,13 @@ def get_config(env, ckpt=""):
                 "fcnet_hiddens": fcnet_hiddens,
                 "fcnet_activation": "relu",
             },
-            lr=5e-05
+            lr=1e-06
         )
     )
     return config
 
 
-def train_model(env, episodes=1000, print_every=10, ckpt=""):
+def train_model(env, episodes=1000, print_every=10, save_every=1000, ckpt=""):
     name = f"ppo_{env.name}"
     save_path = ""
     episode_reward_means = []
@@ -147,8 +147,13 @@ def train_model(env, episodes=1000, print_every=10, ckpt=""):
             prefix = '0' * (6-len(str(i)))
             result = module.save(checkpoint_dir=os.path.join(result_path, f"checkpoint-{prefix}{i}"))
             save_path = result.checkpoint.path
-            print(f"\nCkpt saved    : {save_path}")
-            print(f"Mean reward     : {round(max_reward,4)}")
+            print(f"\nCkpt saved: {save_path}")
+            print(f"Mean reward : {round(max_reward,4)}")
+        if i % save_every == 0:
+            prefix = '0' * (6-len(str(i)))
+            result = module.save(checkpoint_dir=os.path.join(result_path, f"checkpoint-{prefix}{i}"))
+            save_path = result.checkpoint.path
+            print(f"\nCkpt (not best) saved: {save_path}")
 
     module.stop()
     with open(result_path + 'rewards.txt', 'w') as f:
@@ -191,8 +196,6 @@ def simulate(ckpt, n_sims=1):
         rewards = info
         total_reward = 0
         total_steps = 0
-        laser_sim = 0
-        nearest_ball = 0
         while not terminated:
             action = module.compute_single_action(obs)
             obs, reward, terminated, truncated, info = env.step(action)
@@ -210,17 +213,17 @@ def simulate(ckpt, n_sims=1):
 fcnet_hiddens = [192, 192, 192]
 
 if __name__ == "__main__":
+    checkpoint = "/Users/acrystal/Desktop/Coding/bubble-trouble-rl/Results/ppo_1D_v1/checkpoint-002903"
     env_config = {
         'render_mode': None,
         'fps': 60
     }
     game = Game(env_config)
-    rewards, checkpoint = train_model(
+    rewards, best_ckpt = train_model(
         env=game,
         episodes=10000,
-        print_every=10,
-        ckpt="",
+        print_every=25,
+        ckpt=checkpoint,
     )
     plot(rewards, game)
-    # checkpoint = "/Users/acrystal/Desktop/Coding/bubble-trouble-rl/Results/ppo_1D_v8/checkpoint-000593"
-    simulate(checkpoint, n_sims=3)
+    simulate(best_ckpt, n_sims=3)
