@@ -1,4 +1,4 @@
-import sys
+import random
 
 import pygame.display
 
@@ -10,6 +10,7 @@ GREEN = (52, 145, 33)
 BLUE = (128, 206, 242)
 ORANGE = (237, 141, 45)
 PURPLE = (111, 38, 163)
+COLORS = [RED, YELLOW, GREEN, BLUE, ORANGE, PURPLE]
 
 class Levels:
     def __init__(self, width, height, fps):
@@ -51,8 +52,6 @@ class Levels:
                     BallLevel1(6*self.width // 7 + 10, 394,  self.width, self.height, RED, self.fps),
                     BallLevel1(6*self.width // 7 + 30, 394,  self.width, self.height, YELLOW, self.fps),
                     BallLevel1(6*self.width // 7 + 50, 394,  self.width, self.height, ORANGE, self.fps)]
-        elif lvl == 8:
-            balls =  [BallLevel5(self.width // 2, self.height // 4, self.width, self.height, RED, self.fps)]
         else:
             raise ValueError("No further levels have been implemented.")
 
@@ -61,3 +60,33 @@ class Levels:
             group.add(ball)
 
         return group
+    def randomize(self):
+        r = random.Random()
+        total = 0
+        balls = []
+        while total < 10:
+            x = r.randint(0, self.width)
+            y = r.randint(0, self.height - 200)
+            c = r.choice(COLORS)
+            lvl = r.randint(1,4)
+            if lvl == 1:
+                balls.append(BallLevel1(x, y, self.width, self.height, c))
+                total += 1
+            elif lvl == 2:
+                balls.append(BallLevel2(x, y, self.width, self.height, c))
+                total += 2
+            elif lvl == 3:
+                balls.append(BallLevel3(x, y, self.width, self.height, c))
+                total += 3
+            elif lvl == 4:
+                balls.append(BallLevel4(x, y, self.width, self.height, c))
+                total += 4
+
+        group = pygame.sprite.Group()
+        for ball in balls:
+            group.add(ball)
+
+        return group
+
+
+

@@ -1,7 +1,9 @@
-from ray.rllib.algorithms.ppo.ppo_catalog import PPOCatalog
-from ray.rllib.algorithms.ppo import PPOConfig
+from ray.rllib.algorithms.dreamerv3.dreamerv3_rl_module import DreamerV3RLModule
+from ray.rllib.algorithms.dreamerv3.dreamerv3_catalog import DreamerV3Catalog
+from ray.rllib.algorithms.dreamerv3 import DreamerV3Config
 from ray.rllib.core.rl_module.rl_module import SingleAgentRLModuleSpec
-from ray.rllib.algorithms.ppo.torch.ppo_torch_rl_module import PPOTorchRLModule
+
+
 
 import torch
 import numpy as np
@@ -12,67 +14,47 @@ from game_lookback import Game2D
 from game_lookback_flat import Game2DFlat
 
 import os
-from datetime import datetime, timedelta
 from pprint import pprint
 
 # Uses the M1 peformance cores instead of the efficiency cores
 os.setpriority(os.PRIO_PROCESS, os.getpid(), 1)
 
 
-def get_module_spec(env, ckpt, model_type="medium"):
-    if isinstance(env, Game) or isinstance(env, Game2DFlat):
-        conv_filters = None
-        if model_type=="small":
-            fcnet_hidden = [128, 128]
-        elif model_type== "medium":
-            fcnet_hidden = [256, 256]
-        elif model_type == "large":
-            fcnet_hidden = [256, 1024, 512]
-    elif isinstance(env, Game2D):
-        fcnet_hidden = [128, 128]
-        conv_filters =  [
-            (8, [1, 64], 16),  # 8 filters, kernel size of 1x64, stride 16
-            (8, [1, 32], 8),
-            (8, [1, 16], 4),
-            (8, [1, 8], 2),
-            (8, [1, 4], 1),
-        ]
-
+def get_module_spec(env, ckpt):
     config_dict = {
-        "fcnet_hiddens": fcnet_hidden,
-        "conv_filters": conv_filters,
-        "fcnet_activation": "relu",
+        "fcnet_hiddens": [300, 300, 300],
+        "fcnet_activation": "relu"
     }
 
     if ckpt:
         return SingleAgentRLModuleSpec(
-            module_class=PPOTorchRLModule,
+            module_class=DreamerV3RLModule,
             observation_space=env.observation_space,
             action_space=env.action_space,
             model_config_dict=config_dict,
-            catalog_class=PPOCatalog,
-            load_state_path=ckpt,
+            catalog_class=DreamerV3Catalog,
+            load_state_path=ckpt
         )
     else:
         return SingleAgentRLModuleSpec(
-            module_class=PPOTorchRLModule,
+            module_class=DreamerV3RLModule,
             observation_space=env.observation_space,
             action_space=env.action_space,
-            catalog_class=PPOCatalog,
+            catalog_class=DreamerV3Catalog,
             model_config_dict=config_dict
         )
 
 
-def get_config(env, ckpt="", model_type='fcnet'):
-    module_spec = get_module_spec(env, ckpt, model_type=model_type)
+def get_config(env, ckpt=""):
+    module_spec = get_module_spec(env, ckpt)
     config = (
-        PPOConfig()
+        DreamerV3Config()
         .experimental(
             _enable_new_api_stack=True,
             _disable_preprocessor_api=True
         )
         .rl_module(
-            rl_module_spec=module_spec
+            rl_module_spec=module_spec,
         )
         .framework("torch")
         .exploration(
@@ -84,29 +66,17 @@ def get_config(env, ckpt="", model_type='fcnet'):
             rollout_fragment_length=1000,
         )
         .environment(
-            env.__class__,
+            env,
             env_config={
                 "render_mode": None,
                 "width": 720
-            }
+            },
         )
         .training(
-            train_batch_size=10000,
-            model={
-                "fcnet_hiddens": [256, 256, 256],
-                "conv_filters": None,
-                "fcnet_activation": "relu",
-                "use_lstm": model_type=='lstm',
-                "max_seq_len": 100,
-                "lstm_cell_size": 64,
-                # Whether to feed a_{t-1} to LSTM (one-hot encoded if discrete).
-                "lstm_use_prev_action": model_type=='lstm',
-                # Whether to feed r_{t-1} to LSTM.
-                "lstm_use_prev_reward": model_type=='lstm',
-            },
-            lr=5e-05
+            lr=1e-05
         )
     )
+    config.remote_worker_envs = False
     return config
 
 
@@ -115,7 +85,8 @@ def train_model(env, episodes=1000, print_every=10, ckpt="", model_type="fcnet")
     save_path = ""
     episode_reward_means = []
     max_reward = -100  # minimum reward to trigger saving a checkpoint
-    module = get_config(env, model_type=model_type).build()
+    module = get_config(env)
+    module = module.build()
     if ckpt:
         module.restore(ckpt)
         start_episode = int(ckpt[-6:]) + 1
@@ -243,11 +214,11 @@ if __name__ == "__main__":
     game = Game(env_config)
     rewards, checkpoint = train_model(
         env=game,
-        episodes=15000,
-        print_every=15,
+        episodes=10000,
+        print_every=3,
         ckpt="",
         model_type='small'
     )
     plot(rewards, game)
-    # checkpoint = "Results/ppo_1D_v11/checkpoint-000450"
-    simulate(checkpoint, n_sims=5, model_type="small")
+    # checkpoint = "/Users/acrystal/Desktop/Coding/bubble-trouble-rl/Results/ppo_1D_v7/checkpoint-001091"
+    simulate(checkpoint, n_sims=3, model_type="small")

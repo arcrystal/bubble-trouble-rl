@@ -88,9 +88,9 @@ class Laser(pygame.sprite.Sprite):
             for ball_copy in ball_copies:
                 ball_copy.update()
                 if laser_copy.collidesWith(ball_copy):
-                    return 1
+                    return True
 
-        return 0
+        return False
 
     def __repr__(self):
         return f"({self.x}, {self.display_height - self.length}:{self.display_height})"

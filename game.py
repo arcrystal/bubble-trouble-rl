@@ -1,3 +1,5 @@
+import random
+
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
@@ -22,9 +24,9 @@ class Game(gym.Env):
             'shoot_when_shooting': -0.0, # every step
             'hit_ball': 0.1, # up to 16x per episode
             'pop_ball': 0.2, # up to 8x per episode
-            'finish_level': 10.0, # up to 8x per episode
-            'game_over': -10.0, # once per episode
-            'laser_sim': 0.0 # every step
+            'finish_level': 1.0, # up to 8x per episode
+            'game_over': -0.0, # once per episode
+            'laser_sim': 0.01 # every step
         }
         self.window = None
         self.clock = None
@@ -47,11 +49,12 @@ class Game(gym.Env):
             self.clock = pygame.time.Clock()
 
         # Initialize game sprites
+        self.rand_lvl = random.Random()
         self.agent = Agent(self.width / 2, self.height, self.width, self.fps)
         self.agent.laser = Laser(self.width, self.height, self.agent.rect.height, self.fps)
         self.levels = Levels(self.width, self.height, self.fps)
-        self.level = 5
-        self.balls = self.levels.get(5)
+        self.level = self.rand_lvl.randint(1,7)
+        self.balls = self.levels.get(self.level)
 
         self.action_space = gym.spaces.Discrete(4)
         self.observation_space = spaces.Box(low=0.0, high=1.0, shape=(82,))
@@ -71,8 +74,8 @@ class Game(gym.Env):
         self.agent.direction = Direction.STILL
         self.agent.laser.deactivate()
         # Reset the level
-        self.level = 5
-        self.balls = self.levels.get(self.level)
+        self.level = self.rand_lvl.randint(1,7)
+        self.balls = self.levels.randomize()#self.levels.get(self.level)
         self._update_obs()
         if self.render_mode == "human":
             self._render_frame()
@@ -113,14 +116,6 @@ class Game(gym.Env):
                 else:
                     if direction == Direction.LEFT:
                         reward += 0.005
-        #
-        # laser_sim = self.agent.laser._will_collide(self.balls, self.agent.rect.centerx)
-        # # If we shoot the laser, we should hit a ball
-        # if direction == Direction.SHOOT or self.agent.laser.active:
-        #     reward += laser_sim
-        # # Penalize when laser isn't shot but would have hit.
-        # elif not self.agent.laser.active:
-        #     reward -= max(laser_sim, 0)
 
         for ball in self.balls:
             hit = self.agent.laser.collidesWith(ball)
@@ -140,7 +135,8 @@ class Game(gym.Env):
 
                     reward += self.rewards['finish_level']
                     self.level += 1
-                    self.balls = self.levels.get(self.level)
+                    #self.balls = self.levels.get(self.level)
+                    self.balls = self.levels.randomize()
                     self.balls.update()
             elif pygame.sprite.collide_mask(self.agent, ball):
                 if self.render_mode == "human":
@@ -150,6 +146,16 @@ class Game(gym.Env):
 
                 reward += self.rewards['game_over']
                 terminated = True
+
+        # After updating balls, simulate laser
+        laser_sim = self.agent.laser._will_collide(self.balls, self.agent.rect.centerx)
+        shooting = direction == Direction.SHOOT
+        # If we are shooting the laser, we should hit a ball
+        if (laser_sim and shooting) or ((not laser_sim) and (not shooting)):
+            reward += self.rewards["laser_sim"]
+        # Penalize when laser isn't shot but would have hit.
+        else:
+            reward -= self.rewards["laser_sim"]
 
         observation = self._get_obs()
 
@@ -217,8 +223,8 @@ class Game(gym.Env):
             ball_yspeed = []
             for ball in self.balls:
                 ball_sizes.append(ball.radius / min(self.width, self.height))
-                ball_X.append(ball.rect.centerx / self.width)
-                ball_Y.append(max(ball.rect.centery / self.height, 0))
+                ball_X.append(max(min(ball.rect.centerx / self.width, 1), 0))
+                ball_Y.append(max(min(ball.rect.centery / self.height, 1), 0))
                 ball_xspeed.append(ball.xspeed / self.width)
                 ball_yspeed.append(ball.yspeed / self.height)
 
@@ -239,7 +245,7 @@ class Game(gym.Env):
                     + [self.agent.laser.length / self.height,
                        self.agent.rect.centerx / self.width])
 
-        return np.array(obs_list, dtype=np.float32)
+        return np.array(obs_list).astype(np.float32)
 
     def _update_obs(self):
         self.observation = self._get_obs()
