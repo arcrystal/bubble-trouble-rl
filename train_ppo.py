@@ -61,7 +61,7 @@ def get_config(env, ckpt=""):
         .rollouts(
             num_rollout_workers=10,
             num_envs_per_worker=1,
-            rollout_fragment_length=100,
+            rollout_fragment_length=15,
         )
         .environment(
             env.__class__,
@@ -71,12 +71,12 @@ def get_config(env, ckpt=""):
             }
         )
         .training(
-            train_batch_size=1000,
+            train_batch_size=150,
             model={
                 "fcnet_hiddens": fcnet_hiddens,
                 "fcnet_activation": "relu",
             },
-            lr=1e-06
+            lr=5e-05
         )
     )
     return config
@@ -88,6 +88,7 @@ def train_model(env, episodes=1000, print_every=10, save_every=1000, ckpt=""):
     episode_reward_means = []
     max_reward = -100  # minimum reward to trigger saving a checkpoint
     module = get_config(env).build()
+    curr_iter_times = np.zeros((print_every,))
     if ckpt:
         module.restore(ckpt)
         start_episode = int(ckpt[-6:]) + 1
@@ -112,6 +113,7 @@ def train_model(env, episodes=1000, print_every=10, save_every=1000, ckpt=""):
     for i in range(start_episode, episodes+start_episode):
         result = module.train()
         episode_reward_means.append(result['episode_reward_mean'])
+        curr_iter_times[i % print_every] = result['time_this_iter_s']
         with open(result_path+"rewards.txt", 'a') as f:
             f.write(str(result['episode_reward_mean']))
             f.write(",")
@@ -119,7 +121,7 @@ def train_model(env, episodes=1000, print_every=10, save_every=1000, ckpt=""):
         if i == start_episode:
             pprint(result)
         if i % print_every == 0:
-            curr_iter_time = result['time_this_iter_s']
+            curr_iter_time = curr_iter_times.mean()
             curr_tot_time = result['time_total_s']
             time_left = curr_iter_time * (episodes+start_episode-i)
             d1 = int(curr_tot_time // 86400)
@@ -134,7 +136,6 @@ def train_model(env, episodes=1000, print_every=10, save_every=1000, ckpt=""):
             print(f"\n___________")
             print(f"Episode {i}/{episodes+start_episode-1}")
             print(f'  Mean reward   :', round(result['episode_reward_mean'], 4))
-            print(f'  All rewards   :', [round(x, 5) for x in result['hist_stats']['episode_reward']])
             print(f'  Mean steps    :', round(result['episode_len_mean'], 4))
             print(f'  Iter runtime  :', round(curr_iter_time, 4))
             print(f'  Total runtime : {d1}d {h1}h {m1}m {s1}s')
@@ -210,20 +211,22 @@ def simulate(ckpt, n_sims=1):
         print("Total reward:", total_reward)
 
 
-fcnet_hiddens = [192, 192, 192]
+fcnet_hiddens = [256, 256, 256]
+# fcnet_hiddens = [192, 192, 192]
 
 if __name__ == "__main__":
-    checkpoint = "/Users/acrystal/Desktop/Coding/bubble-trouble-rl/Results/ppo_1D_v1/checkpoint-002903"
-    env_config = {
-        'render_mode': None,
-        'fps': 60
-    }
-    game = Game(env_config)
-    rewards, best_ckpt = train_model(
-        env=game,
-        episodes=10000,
-        print_every=25,
-        ckpt=checkpoint,
-    )
-    plot(rewards, game)
-    simulate(best_ckpt, n_sims=3)
+    best_ckpt = "Results/ppo_1D_v5/checkpoint-007412"
+    # ckpt = ""
+    # env_config = {
+    #     'render_mode': None,
+    #     'fps': 24
+    # }
+    # game = Game(env_config)
+    # rewards, best_ckpt = train_model(
+    #     env=game,
+    #     episodes=25000,
+    #     print_every=25,
+    #     ckpt=ckpt,
+    # )
+    # plot(rewards, game)
+    simulate(best_ckpt, n_sims=5)

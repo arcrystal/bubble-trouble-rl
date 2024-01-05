@@ -55,16 +55,13 @@ class Levels:
         else:
             raise ValueError("No further levels have been implemented.")
 
-        group = pygame.sprite.Group()
-        for ball in balls:
-            group.add(ball)
+        return pygame.sprite.Group(balls)
 
-        return group
     def randomize(self):
         r = random.Random()
         total = 0
         balls = []
-        while total < 10:
+        while total < 20:
             x = r.randint(0, self.width)
             y = r.randint(0, self.height - 200)
             c = r.choice(COLORS)
@@ -74,19 +71,14 @@ class Levels:
                 total += 1
             elif lvl == 2:
                 balls.append(BallLevel2(x, y, self.width, self.height, c))
-                total += 2
+                total += 3
             elif lvl == 3:
                 balls.append(BallLevel3(x, y, self.width, self.height, c))
-                total += 3
+                total += 7
             elif lvl == 4:
                 balls.append(BallLevel4(x, y, self.width, self.height, c))
-                total += 4
+                total += 15
 
-        group = pygame.sprite.Group()
-        for ball in balls:
-            group.add(ball)
-
-        return group
-
+        return pygame.sprite.Group(balls)
 
 

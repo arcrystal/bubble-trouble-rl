@@ -22,9 +22,9 @@ class Game(gym.Env):
         self.rewards = {
             'time_passing': 0.0, # every step
             'shoot_when_shooting': -0.0, # every step
-            'hit_ball': 0.1, # up to 16x per episode
-            'pop_ball': 0.2, # up to 8x per episode
-            'finish_level': 1.0, # up to 8x per episode
+            'hit_ball': 0.0, # up to 16x per episode
+            'pop_ball': 0.0, # up to 8x per episode
+            'finish_level': 10000.0, # up to 8x per episode
             'game_over': -0.0, # once per episode
             'laser_sim': 0.01 # every step
         }
@@ -57,7 +57,7 @@ class Game(gym.Env):
         self.balls = self.levels.get(self.level)
 
         self.action_space = gym.spaces.Discrete(4)
-        self.observation_space = spaces.Box(low=0.0, high=1.0, shape=(82,))
+        self.observation_space = spaces.Box(low=-1.0, high=1.0, shape=(82,))
         self.observation = np.zeros(self.observation_space.shape)
 
         self._action_to_direction = {
@@ -69,6 +69,7 @@ class Game(gym.Env):
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
+        self.steps = 0
         # Reset the player
         self.agent.rect.midbottom = (self.width / 2, self.height)
         self.agent.direction = Direction.STILL
@@ -83,7 +84,9 @@ class Game(gym.Env):
         return self.observation, self._get_info()
 
     def step(self, action=None):
-        reward = self.rewards['time_passing']
+        # self.steps += 1
+        # reward = self.steps / 100
+        reward = 0
         terminated = False
         truncated = False
         info = {}
@@ -105,17 +108,17 @@ class Game(gym.Env):
         self.agent.laser.update()
         self.balls.update()
 
-        nearest_ball = self.nearest_ball()
-        if abs(nearest_ball) > 0.25 * self.width:
-            if not self.agent.laser.active:
-                if direction == Direction.SHOOT:
-                    reward -= 0.01
-                elif nearest_ball > 0:
-                    if direction == Direction.RIGHT:
-                        reward += 0.005
-                else:
-                    if direction == Direction.LEFT:
-                        reward += 0.005
+        # nearest_ball = self.nearest_ball()
+        # if abs(nearest_ball) > 0.25 * self.width:
+        #     if not self.agent.laser.active:
+        #         if direction == Direction.SHOOT:
+        #             reward -= 0.01
+        #         elif nearest_ball > 0:
+        #             if direction == Direction.RIGHT:
+        #                 reward += 0.005
+        #         else:
+        #             if direction == Direction.LEFT:
+        #                 reward += 0.005
 
         for ball in self.balls:
             hit = self.agent.laser.collidesWith(ball)
@@ -135,6 +138,7 @@ class Game(gym.Env):
 
                     reward += self.rewards['finish_level']
                     self.level += 1
+                    truncated = True
                     #self.balls = self.levels.get(self.level)
                     self.balls = self.levels.randomize()
                     self.balls.update()
@@ -150,14 +154,18 @@ class Game(gym.Env):
         # After updating balls, simulate laser
         laser_sim = self.agent.laser._will_collide(self.balls, self.agent.rect.centerx)
         shooting = direction == Direction.SHOOT
-        # If we are shooting the laser, we should hit a ball
-        if (laser_sim and shooting) or ((not laser_sim) and (not shooting)):
+        if laser_sim and shooting:
             reward += self.rewards["laser_sim"]
-        # Penalize when laser isn't shot but would have hit.
+        elif (not laser_sim) and (not shooting):
+            reward += self.rewards["laser_sim"]
         else:
             reward -= self.rewards["laser_sim"]
 
-        observation = self._get_obs()
+        middle = self.width / 2
+        if self.agent.rect.centerx < middle - 100 or self.agent.rect.centerx > middle + 100:
+            reward -= 9
+
+        self._update_obs()
 
         if self.render_mode == "human":
             self._render_frame()
@@ -204,11 +212,16 @@ class Game(gym.Env):
     def play(self):
         while (True):
             observation, reward, terminated, truncated, info = self.step()
-            if terminated or truncated:
+            if terminated:
                 return
 
     def _get_obs(self):
         if len(self.balls) == 0:
+            ball_sizes = []
+            ball_X = []
+            ball_Y = []
+            ball_xspeed = []
+            ball_yspeed = []
             for i in range(16):
                 ball_sizes.append(0.0)
                 ball_X.append(0.0)
@@ -235,7 +248,7 @@ class Game(gym.Env):
                     ball_sizes.append(ball_sizes[ball_idx])
                     ball_X.append(ball_X[ball_idx])
                     ball_Y.append(ball_Y[ball_idx])
-                    ball_xspeed.append(ball_xspeed[ball_idx])
+                    ball_xspeed.append(ball_xspeed[ball_idx]  )
                     ball_yspeed.append(ball_yspeed[ball_idx])
                     if len(ball_sizes) == 16:
                         not_filled = False
