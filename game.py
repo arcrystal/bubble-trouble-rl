@@ -54,7 +54,7 @@ class Game(gym.Env):
         self.agent.laser = Laser(self.width, self.height, self.agent.rect.height, self.fps)
         self.levels = Levels(self.width, self.height, self.fps)
         self.level = self.rand_lvl.randint(1,7)
-        self.balls = self.levels.get(self.level)
+        self.balls = self.levels.randomize() # self.levels.get(self.level)
 
         self.action_space = gym.spaces.Discrete(4)
         self.observation_space = spaces.Box(low=-1.0, high=1.0, shape=(82,))
@@ -76,7 +76,7 @@ class Game(gym.Env):
         self.agent.laser.deactivate()
         # Reset the level
         self.level = self.rand_lvl.randint(1,7)
-        self.balls = self.levels.randomize()#self.levels.get(self.level)
+        self.balls = self.levels.randomize() # self.levels.get(self.level)
         self._update_obs()
         if self.render_mode == "human":
             self._render_frame()
