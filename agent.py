@@ -2,25 +2,28 @@ import pygame
 
 from direction import Direction
 
+LEFT_SPRITE = pygame.image.load("Sprites/left.png")
+STILL_SPRITE = pygame.image.load("Sprites/still.png")
+RIGHT_SPRITE = pygame.image.load("Sprites/right.png")
+
 
 class Agent(pygame.sprite.Sprite):
     def __init__(self, x, y, display_width, fps):
         super().__init__()
         self.laser = None
         self.display_width = display_width
-        self.left_sprite = self.load("Sprites/left.png")
-        self.still_sprite = self.load("Sprites/still.png")
-        self.right_sprite = self.load("Sprites/right.png")
+        self.left_sprite = self.load(LEFT_SPRITE)
+        self.still_sprite = self.load(STILL_SPRITE)
+        self.right_sprite = self.load(RIGHT_SPRITE)
         self.image = self.still_sprite
         self.rect = self.image.get_rect()
         self.rect.midbottom = (x, y)
         self.speed = display_width / fps / 5.13
         self.direction = Direction.STILL
 
-    def load(self, filename):
-        image = pygame.image.load(filename)
-        # if display width = 720, player height = 47 and width = 21
-        return pygame.transform.scale(image, (30 / 720 * self.display_width, 47 / 720 * self.display_width))
+    def load(self, image):
+        return pygame.transform.scale(image, (
+            30 / 720 * self.display_width, 47 / 720 * self.display_width))
 
     def step(self, direction):
         if not isinstance(direction, Direction):

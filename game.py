@@ -1,7 +1,4 @@
 import random
-
-import gymnasium as gym
-from gymnasium import spaces
 import numpy as np
 import pygame
 from direction import Direction
@@ -9,10 +6,10 @@ from laser import Laser
 from levels import Levels
 from agent import Agent
 import time
+import asyncio
 
 
-
-class Game(gym.Env):
+class Game():
 
     def __init__(self, config):
         self.name = "1D"
@@ -20,24 +17,24 @@ class Game(gym.Env):
         self.render_mode = config.get('render_mode', 'human')
         self.fps = config.get('fps', 60)
         self.rewards = {
-            'time_passing': 0.0, # every step
-            'shoot_when_shooting': -0.0, # every step
-            'hit_ball': 0.0, # up to 16x per episode
-            'pop_ball': 0.0, # up to 8x per episode
-            'finish_level': 10000.0, # up to 8x per episode
-            'game_over': -0.0, # once per episode
-            'laser_sim': 0.01 # every step
+            'time_passing': 0.0,  # every step
+            'shoot_when_shooting': -0.0,  # every step
+            'hit_ball': 0.0,  # up to 16x per episode
+            'pop_ball': 0.0,  # up to 8x per episode
+            'finish_level': 10000.0,  # up to 8x per episode
+            'game_over': -0.0,  # once per episode
+            'laser_sim': 0.01  # every step
         }
         self.window = None
         self.clock = None
         self.width = config.get('width', 720)
-        self.height = round(self.width / 1.87) # 385
+        self.height = round(self.width / 1.87)  # 385
         pygame.font.init()
         font = pygame.font.Font('freesansbold.ttf', 32)
         self.win = font.render('Level Complete!', True,
-                               (0,255,0), (0,0,100))
+                               (0, 255, 0), (0, 0, 100))
         self.lose = font.render('Game Over...', True,
-                                (240,20,20), (80,0,80))
+                                (240, 20, 20), (80, 0, 80))
         self.textRect = self.win.get_rect()
         self.textRect.centerx = self.width / 2
         self.textRect.centery = self.height / 3
@@ -53,13 +50,8 @@ class Game(gym.Env):
         self.agent = Agent(self.width / 2, self.height, self.width, self.fps)
         self.agent.laser = Laser(self.width, self.height, self.agent.rect.height, self.fps)
         self.levels = Levels(self.width, self.height, self.fps)
-        self.level = self.rand_lvl.randint(1,7)
-        self.balls = self.levels.randomize() # self.levels.get(self.level)
-
-        self.action_space = gym.spaces.Discrete(4)
-        self.observation_space = spaces.Box(low=-1.0, high=1.0, shape=(82,))
-        self.observation = np.zeros(self.observation_space.shape)
-
+        self.level = self.rand_lvl.randint(1, 7)
+        self.balls = self.levels.randomize()
         self._action_to_direction = {
             0: Direction.LEFT,
             1: Direction.RIGHT,
@@ -68,15 +60,14 @@ class Game(gym.Env):
         }
 
     def reset(self, seed=None, options=None):
-        super().reset(seed=seed)
         self.steps = 0
         # Reset the player
         self.agent.rect.midbottom = (self.width / 2, self.height)
         self.agent.direction = Direction.STILL
         self.agent.laser.deactivate()
         # Reset the level
-        self.level = self.rand_lvl.randint(1,7)
-        self.balls = self.levels.randomize() # self.levels.get(self.level)
+        self.level = self.rand_lvl.randint(1, 7)
+        self.balls = self.levels.randomize()  # self.levels.get(self.level)
         self._update_obs()
         if self.render_mode == "human":
             self._render_frame()
@@ -108,18 +99,6 @@ class Game(gym.Env):
         self.agent.laser.update()
         self.balls.update()
 
-        # nearest_ball = self.nearest_ball()
-        # if abs(nearest_ball) > 0.25 * self.width:
-        #     if not self.agent.laser.active:
-        #         if direction == Direction.SHOOT:
-        #             reward -= 0.01
-        #         elif nearest_ball > 0:
-        #             if direction == Direction.RIGHT:
-        #                 reward += 0.005
-        #         else:
-        #             if direction == Direction.LEFT:
-        #                 reward += 0.005
-
         for ball in self.balls:
             hit = self.agent.laser.collidesWith(ball)
             if hit:
@@ -139,13 +118,12 @@ class Game(gym.Env):
                     reward += self.rewards['finish_level']
                     self.level += 1
                     truncated = True
-                    #self.balls = self.levels.get(self.level)
+                    # self.balls = self.levels.get(self.level)
                     self.balls = self.levels.randomize()
                     self.balls.update()
             elif pygame.sprite.collide_mask(self.agent, ball):
                 if self.render_mode == "human":
                     self.window.blit(self.lose, self.textRect)
-                    pygame.display.update()
                     time.sleep(1)
 
                 reward += self.rewards['game_over']
@@ -208,11 +186,14 @@ class Game(gym.Env):
         if self.window is not None:
             pygame.display.quit()
             pygame.quit()
+            exit()
 
-    def play(self):
-        while (True):
+    async def play(self):
+        while True:
             observation, reward, terminated, truncated, info = self.step()
-            if terminated:
+            await asyncio.sleep(0)
+            if terminated or truncated:
+                print("Game over...")
                 return
 
     def _get_obs(self):
@@ -248,7 +229,7 @@ class Game(gym.Env):
                     ball_sizes.append(ball_sizes[ball_idx])
                     ball_X.append(ball_X[ball_idx])
                     ball_Y.append(ball_Y[ball_idx])
-                    ball_xspeed.append(ball_xspeed[ball_idx]  )
+                    ball_xspeed.append(ball_xspeed[ball_idx])
                     ball_yspeed.append(ball_yspeed[ball_idx])
                     if len(ball_sizes) == 16:
                         not_filled = False
@@ -264,5 +245,4 @@ class Game(gym.Env):
         self.observation = self._get_obs()
 
     def _get_info(self):
-        return {key:0 for key, val in self.rewards.items()}
-
+        return {key: 0 for key, val in self.rewards.items()}
