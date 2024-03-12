@@ -1,12 +1,1 @@
-gymnasium~=0.26.3
-numpy~=1.26.2
-pygame~=2.5.2
-torch~=2.1.1
-matplotlib~=3.8.0
-ray~=2.9.0
-lz4~=4.3.3
-pyarrow~=14.0.2
-dm_tree~=0.1.8
-pandas~=2.1.4
-opencv-python~=4.9.0.80
-scipy~=1.11.4
+pygbag~=0.9.0
