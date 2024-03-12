@@ -14,7 +14,7 @@ class AbstractBall(pygame.sprite.Sprite):
         self.yspeed = 0
         self.max_yspeed = max_yspeed
         self.yacc = yacc
-        self.rect = pygame.Rect(x, y, radius*2, radius*2)
+        self.rect = pygame.Rect(x, y, radius * 2, radius * 2)
         self.timestep = 1.0 / fps
         self.display_width = display_width
         self.display_height = display_height
@@ -23,7 +23,7 @@ class AbstractBall(pygame.sprite.Sprite):
         self.mask = pygame.mask.from_surface(surface)
 
     def load_properties(self, display_height, display_width):
-       return 0, 0, 0
+        return 0, 0, 0
 
     def pop(self):
         pass
@@ -67,7 +67,7 @@ class AbstractBall(pygame.sprite.Sprite):
 
     def copy(self):
         return type(self)(self.x, self.y, self.display_width,
-                            self.display_height, self.color, self.fps)
+                          self.display_height, self.color, self.fps)
 
     def __repr__(self):
         return f"({self.x}, {self.y}), {self.radius})"

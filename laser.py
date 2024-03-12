@@ -37,7 +37,7 @@ class Laser(pygame.sprite.Sprite):
 
             self.length = min(self.length + self.speed, self.display_height)
 
-    def collidesWith(self, ball):
+    def collides_with(self, ball):
         # lasers is inactive
         if not self.active:
             return False
@@ -58,11 +58,10 @@ class Laser(pygame.sprite.Sprite):
             return False
 
         if (self.display_height - self.length < ball_y + ball_radius
-            and self.display_height > ball_y - ball_radius):
+                and self.display_height > ball_y - ball_radius):
             return True
 
         return False
-
 
     def draw(self, canvas):
         if self.active:
@@ -83,15 +82,14 @@ class Laser(pygame.sprite.Sprite):
             laser_copy.fire(x)
 
         ball_copies = [ball.copy() for ball in balls]
-        while(laser_copy.active):
+        while laser_copy.active:
             laser_copy.update()
             for ball_copy in ball_copies:
                 ball_copy.update()
-                if laser_copy.collidesWith(ball_copy):
+                if laser_copy.collides_with(ball_copy):
                     return True
 
         return False
 
     def __repr__(self):
         return f"({self.x}, {self.display_height - self.length}:{self.display_height})"
-

@@ -58,9 +58,9 @@ class Game:
         self.balls = self.levels.randomize()  # self.levels.get(self.level)
         self._render_frame()
 
-    def step(self, action=None):
-        newlevel = False
-        gameover = False
+    def step(self):
+        new_level = False
+        game_over = False
 
         # Update agent, laser, and ball sprites
         keys = pygame.key.get_pressed()
@@ -78,7 +78,7 @@ class Game:
         self.balls.update()
 
         for ball in self.balls:
-            hit = self.agent.laser.collidesWith(ball)
+            hit = self.agent.laser.collides_with(ball)
             if hit:
                 new_balls = ball.pop()
                 self.agent.laser.deactivate()
@@ -88,7 +88,7 @@ class Game:
                     if len(self.balls) == 0:
                         self.window.blit(self.win, self.textRect)
                         pygame.display.update()
-                        newlevel = True
+                        new_level = True
                         self.balls = self.levels.randomize()
                         self.balls.update()
 
@@ -96,11 +96,11 @@ class Game:
                 self.window.blit(self.lose, self.textRect)
                 time.sleep(1)
 
-                gameover = True
+                game_over = True
 
         self._render_frame()
 
-        return newlevel, gameover
+        return new_level, game_over
 
     def _render_frame(self):
         canvas = pygame.Surface((self.width, self.height))
