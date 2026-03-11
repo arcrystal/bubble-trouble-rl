@@ -71,21 +71,18 @@ class MetricsCallback(BaseCallback):
 
     def _on_step(self):
         # Log per-episode info from Monitor wrapper
+        # SB3's Monitor adds "episode" key to info on the terminal step only
         for info in self.locals.get("infos", []):
             if "episode" in info:
                 ep = info["episode"]
                 self.logger.record("game/episode_reward", ep["r"])
                 self.logger.record("game/episode_length", ep["l"])
-            if "level_cleared" in info and info.get("level_cleared"):
-                self.logger.record("game/level_cleared", 1)
-            if "game_cleared" in info and info.get("game_cleared"):
-                self.logger.record("game/game_cleared", 1)
-            if info.get("shots_wasted", 0) > 0:
-                self.logger.record("game/shots_wasted", info["shots_wasted"])
-            if info.get("danger_splits", 0) > 0:
-                self.logger.record("game/danger_splits", info["danger_splits"])
-            if info.get("time_bonus", 0) > 0:
-                self.logger.record("game/time_bonus", info["time_bonus"])
+                # Episode-level cumulative stats (available on every step, but only log at episode end)
+                self.logger.record("game/levels_cleared", info.get("levels_cleared", 0))
+                self.logger.record("game/highest_level", info.get("highest_level", 1))
+                self.logger.record("game/game_cleared", 1 if info.get("game_cleared") else 0)
+                self.logger.record("game/shots_wasted", info.get("shots_wasted", 0))
+                self.logger.record("game/danger_splits", info.get("danger_splits", 0))
         return True
 
 

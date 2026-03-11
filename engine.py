@@ -114,6 +114,8 @@ class BubbleTroubleEngine:
         self.shots_fired = 0
         self.shots_wasted = 0
         self.danger_splits = 0
+        self.levels_cleared = 0
+        self.highest_level = start_level
 
     def reset(self):
         """Reset the engine for a new episode. Returns None (no obs here)."""
@@ -135,6 +137,8 @@ class BubbleTroubleEngine:
         self.shots_fired = 0
         self.shots_wasted = 0
         self.danger_splits = 0
+        self.levels_cleared = 0
+        self.highest_level = self.start_level
 
         # Reset power-ups
         self.has_double_harpoon = False
@@ -197,6 +201,14 @@ class BubbleTroubleEngine:
         self.ball_level[i] = level
         self.n_balls += 1
 
+    def _finalize_info(self, info):
+        """Stamp episode-level cumulative counters onto the info dict."""
+        info["shots_wasted"] = self.shots_wasted
+        info["danger_splits"] = self.danger_splits
+        info["levels_cleared"] = self.levels_cleared
+        info["highest_level"] = self.highest_level
+        return info
+
     def step(self, action):
         """Advance the engine by one frame. Returns (reward, terminated, truncated, info)."""
         reward = 0.0
@@ -204,10 +216,10 @@ class BubbleTroubleEngine:
         truncated = False
         info = {"balls_hit": 0, "balls_popped": 0, "level_cleared": False,
                 "game_cleared": False, "powerup_picked": False,
-                "shots_wasted": 0, "danger_splits": 0, "time_bonus": 0.0}
+                "time_bonus": 0.0}
 
         if self.done:
-            return reward, True, False, info
+            return reward, True, False, self._finalize_info(info)
 
         self.steps += 1
 
@@ -289,7 +301,6 @@ class BubbleTroubleEngine:
         reward += hit_reward
         info["balls_hit"] += hit_info["balls_hit"]
         info["balls_popped"] += hit_info["balls_popped"]
-        info["danger_splits"] += hit_info["danger_splits"]
 
         # --- Check agent-ball collisions ---
         if self._check_agent_ball_collision():
@@ -299,7 +310,7 @@ class BubbleTroubleEngine:
                 reward += REWARDS_GAME_OVER
                 terminated = True
                 self.done = True
-                return reward, terminated, truncated, info
+                return reward, terminated, truncated, self._finalize_info(info)
 
         # --- Check power-up pickup ---
         if self.powerup_on_ground and self.enable_powerups:
@@ -315,13 +326,17 @@ class BubbleTroubleEngine:
             reward += time_bonus
             info["level_cleared"] = True
             info["time_bonus"] = time_bonus
+            self.levels_cleared += 1
 
             if self.sequential_levels and self.current_level < self.max_level:
                 self.current_level += 1
+                self.highest_level = max(self.highest_level, self.current_level)
                 self._load_level(self.current_level)
-                # Reset lasers for new level
+                # Reset lasers and ground power-ups for new level
                 self.laser_active[:] = False
                 self.laser_length[:] = 0.0
+                self.powerup_on_ground = False
+                self.powerup_ground_type = POWERUP_NONE
             else:
                 # All levels cleared or non-sequential mode
                 if self.sequential_levels:
@@ -329,7 +344,7 @@ class BubbleTroubleEngine:
                     info["game_cleared"] = True
                 truncated = True
                 self.done = True
-                return reward, terminated, truncated, info
+                return reward, terminated, truncated, self._finalize_info(info)
 
         # --- Time penalty and time limit ---
         reward += REWARDS_TIME_PENALTY
@@ -338,10 +353,7 @@ class BubbleTroubleEngine:
             truncated = True
             self.done = True
 
-        # Populate episode-level tracking
-        info["shots_wasted"] = self.shots_wasted
-
-        return reward, terminated, truncated, info
+        return reward, terminated, truncated, self._finalize_info(info)
 
     def _try_fire_laser(self):
         """Fire a laser if a slot is available."""
