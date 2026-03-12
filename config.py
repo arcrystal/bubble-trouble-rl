@@ -11,9 +11,10 @@ WHITE     = (255, 255, 255)
 RED       = (255, 0,   0)
 YELLOW    = (245, 237, 7)
 GREEN     = (52,  145, 33)
-BLUE      = (128, 206, 242)
 ORANGE    = (237, 141, 45)
+BLUE      = (128, 206, 242)
 PURPLE    = (160, 50,  220)
+BLUEPURPLE   = (144, 125,  230)
 CYAN      = (0,   220, 220)
 GRAY      = (120, 120, 120)
 DARK_GRAY = (60,  60,  60)
@@ -129,13 +130,28 @@ LEVEL_HEIGHT_OVERRIDE = {
     7: 0.70,  # 70% of normal height — cramped level
 }
 
+# Per-level agent start x-position override (as fraction of display width, measured at center).
+# Defaults to screen center if not specified.
+LEVEL_AGENT_START = {
+    8: 0.17,   # Start in leftmost third (center between x=0 and first wall at x≈0.34)
+}
+
 OBSTACLE_DEFS = {
     5:  [(0.48, 0.0,  0.04, 0.75),                                    # Solid wall (top 75%)
          (0.48, 0.75, 0.04, 0.25, OBSTACLE_DOOR, DOOR_TRIGGER_LEFT)], # Door (bottom 25%) opens when left cleared
     6:  [(0.0, 0.0, 1.0, 0.02, OBSTACLE_LOWERING_CEIL)],       # Lowering ceiling bar
     7:  [(0.0, 0.0, 1.0, 0.02, OBSTACLE_STATIC)],       # short map with solid ceiling (no lowering)
-    8:  [(0.34, 0.0, 0.04, 1.0, OBSTACLE_OPENING),             # Two opening walls (measured)
-         (0.66, 0.0, 0.04, 1.0, OBSTACLE_OPENING)],
+    8:  [# Wall 1 (x=0.34): each half slides OUT from center when left section is cleared.
+         # Tuple: (x, y, w, h, type, trigger_left_ratio, slide_dir)
+         # trigger_left_ratio: left boundary of section that must be emptied to open.
+         # slide_dir: -1 = slide up off screen, +1 = slide down off screen.
+         (0.34, 0.00, 0.04, 0.50, OBSTACLE_OPENING, 0.00, -1),   # top half → slides up
+         (0.34, 0.50, 0.04, 0.50, OBSTACLE_OPENING, 0.00, +1),   # bottom half → slides down
+         # Wall 2 (x=0.66): opens when middle section (right of wall 1) is cleared.
+         # trigger_left = right edge of wall 1 = 0.34+0.04 = 0.38
+         (0.66, 0.00, 0.04, 0.50, OBSTACLE_OPENING, 0.38, -1),   # top half → slides up
+         (0.66, 0.50, 0.04, 0.50, OBSTACLE_OPENING, 0.38, +1),   # bottom half → slides down
+    ],
     13: [(i / 6, 0.0, 0.025, 0.85) for i in range(1, 6)],      # 5 columns
     14: [(0.30, 0.0, 0.03, 0.85), (0.67, 0.0, 0.03, 0.85)],   # 2 columns
     15: [(0.45, 0.0, 0.04, 0.82)],                              # Wall divider
@@ -194,7 +210,8 @@ OBS_SIZE = MAX_OBS_BALLS * OBS_PER_BALL + OBS_AGENT + OBS_GLOBAL + OBS_POWERUP +
 # Required keys: "lvl" (1-6), "x" (0-1 ratio of width), "y" (0-1 ratio of height)
 # Optional keys:
 #   "dir":         "L" or "R"  (default "R")  — initial horizontal direction
-#   "static":      bool        (default False) — no horizontal motion (BALL_FLAG_STATIC)
+#   "static":      bool        (default False) — static until popped: no horizontal motion;
+#                              split children revert to normal horizontal motion (BALL_FLAG_STATIC)
 #   "bounce":      float       (default 1.0)   — bounciness multiplier
 #   "keep_bounce": bool        (default True)  — if False, children revert to bounce=1.0 on split
 #   "color":       RGB tuple   (default = BALL_COLORS_BY_LEVEL[lvl]) — visual color, inherited by children
@@ -243,85 +260,38 @@ LEVEL_DEFS = {
         {"lvl": 1, "x": 0.92, "y": 0.67, "dir": "L"},
     ],
     8: [                                                                            # yellow / orange / red in 3 sections
-        {"lvl": 3, "x": 0.18, "y": 0.52, "dir": "R"},
-        {"lvl": 4, "x": 0.51, "y": 0.30, "dir": "R"},
-        {"lvl": 5, "x": 0.88, "y": 0.35, "dir": "L"},
+        {"lvl": 3, "x": 0.18, "y": 0.52, "dir": "R", "color":YELLOW},
+        {"lvl": 4, "x": 0.51, "y": 0.30, "dir": "R", "color":ORANGE},
+        {"lvl": 5, "x": 0.88, "y": 0.35, "dir": "L", "color":RED},
     ],
     9: [                                                                            # yellow-left, red-center, yellow-right
-        {"lvl": 4, "x": 0.13, "y": 0.52, "dir": "R"},
-        {"lvl": 5, "x": 0.50, "y": 0.31, "dir": "L"},
-        {"lvl": 4, "x": 0.85, "y": 0.49, "dir": "L"},
+        {"lvl": 4, "x": 0.13, "y": 0.52, "dir": "L", "color":YELLOW},
+        {"lvl": 5, "x": 0.50, "y": 0.31, "static": True, "color":RED},                            # static red ball in center
+        {"lvl": 4, "x": 0.85, "y": 0.49, "dir": "R", "color":YELLOW},
     ],
     10: [
         {"lvl": 6, "x": 0.23, "y": 0.30, "dir": "R"},                            # single huge dark-red ball
     ],
     11: [                                                                           # 2 groups of 4 at top
-        {"lvl": 3, "x": 0.05, "y": 0.24, "dir": "L"},
-        {"lvl": 3, "x": 0.09, "y": 0.24, "dir": "R"},
-        {"lvl": 2, "x": 0.13, "y": 0.24, "dir": "L"},
-        {"lvl": 2, "x": 0.22, "y": 0.24, "dir": "R"},
-        {"lvl": 3, "x": 0.69, "y": 0.24, "dir": "L"},
-        {"lvl": 3, "x": 0.74, "y": 0.24, "dir": "R"},
-        {"lvl": 2, "x": 0.78, "y": 0.24, "dir": "L"},
-        {"lvl": 2, "x": 0.87, "y": 0.24, "dir": "R"},
+        # static=True → bounce vertically in place until popped; children get normal horizontal motion
+        # bounce=2.09 → reach 76% of screen height; keep_bounce=True so children inherit bounciness
+        {"lvl": 2, "x": 0.05, "y": 0.24, "static": True, "bounce": 2.09, "keep_bounce": True},
+        {"lvl": 2, "x": 0.09, "y": 0.24, "static": True, "bounce": 2.09, "keep_bounce": True},
+        {"lvl": 2, "x": 0.13, "y": 0.24, "static": True, "bounce": 2.09, "keep_bounce": True},
+        {"lvl": 2, "x": 0.22, "y": 0.24, "static": True, "bounce": 2.09, "keep_bounce": True},
+        {"lvl": 2, "x": 0.69, "y": 0.24, "static": True, "bounce": 2.09, "keep_bounce": True},
+        {"lvl": 2, "x": 0.74, "y": 0.24, "static": True, "bounce": 2.09, "keep_bounce": True},
+        {"lvl": 2, "x": 0.78, "y": 0.24, "static": True, "bounce": 2.09, "keep_bounce": True},
+        {"lvl": 2, "x": 0.87, "y": 0.24, "static": True, "bounce": 2.09, "keep_bounce": True},
     ],
     12: [                                                                           # 3 green left + 3 blue right
-        {"lvl": 3, "x": 0.08, "y": 0.45, "dir": "R"},
-        {"lvl": 3, "x": 0.20, "y": 0.65, "dir": "R"},
-        {"lvl": 3, "x": 0.27, "y": 0.70, "dir": "L"},
-        {"lvl": 1, "x": 0.60, "y": 0.75, "dir": "L"},
-        {"lvl": 1, "x": 0.73, "y": 0.75, "dir": "R"},
-        {"lvl": 1, "x": 0.87, "y": 0.75, "dir": "L"},
-    ],
-    # --- Levels 13-22: designed for difficulty progression ---
-    13: [                                                                           # lane-based (5 columns)
-        {"lvl": 1, "x": 1/12,  "y": 0.50, "dir": "L"},
-        {"lvl": 2, "x": 3/12,  "y": 0.40, "dir": "R"},
-        {"lvl": 1, "x": 5/12,  "y": 0.50, "dir": "L"},
-        {"lvl": 2, "x": 7/12,  "y": 0.40, "dir": "R"},
-        {"lvl": 1, "x": 9/12,  "y": 0.50, "dir": "L"},
-        {"lvl": 1, "x": 11/12, "y": 0.50, "dir": "R"},
-    ],
-    14: [                                                                           # column level
-        {"lvl": 3, "x": 0.15, "y": 0.25, "dir": "R"},
-        {"lvl": 2, "x": 0.50, "y": 0.35, "dir": "L"},
-        {"lvl": 3, "x": 0.85, "y": 0.25, "dir": "L"},
-    ],
-    15: [                                                                           # wall divider
-        {"lvl": 4, "x": 0.20, "y": 0.25, "dir": "L"},
-        {"lvl": 3, "x": 0.75, "y": 0.25, "dir": "R"},
-    ],
-    16: [                                                                           # dodging gauntlet
-        {"lvl": 1, "x": 0.05 + i * 0.12, "y": 0.70, "dir": "R" if i % 2 == 0 else "L"}
-        for i in range(8)
-    ],
-    17: [                                                                           # mixed
-        {"lvl": 3, "x": 0.25, "y": 0.25, "dir": "R"},
-        {"lvl": 1, "x": 0.50, "y": 0.60, "dir": "L"},
-        {"lvl": 2, "x": 0.75, "y": 0.35, "dir": "L"},
-    ],
-    18: [                                                                           # chaotic mix
-        {"lvl": 4, "x": 0.15, "y": 0.25, "dir": "R"},
-        {"lvl": 3, "x": 0.35, "y": 0.25, "dir": "R"},
-        {"lvl": 1, "x": 0.50, "y": 0.55, "dir": "L"},
-        {"lvl": 2, "x": 0.65, "y": 0.35, "dir": "L"},
-        {"lvl": 3, "x": 0.85, "y": 0.25, "dir": "L"},
-    ],
-    19: [                                                                           # introduces lvl5
-        {"lvl": 5, "x": 0.25, "y": 0.20, "dir": "R"},
-        {"lvl": 5, "x": 0.75, "y": 0.20, "dir": "L"},
-    ],
-    20: [                                                                           # lvl5 in split arena
-        {"lvl": 5, "x": 0.22, "y": 0.25, "dir": "L"},
-        {"lvl": 3, "x": 0.78, "y": 0.25, "dir": "R"},
-    ],
-    21: [                                                                           # introduces lvl6
-        {"lvl": 6, "x": 0.35, "y": 0.20, "dir": "R"},
-        {"lvl": 4, "x": 0.75, "y": 0.20, "dir": "L"},
-    ],
-    22: [                                                                           # final boss
-        {"lvl": 6, "x": 0.30, "y": 0.20, "dir": "R"},
-        {"lvl": 5, "x": 0.70, "y": 0.20, "dir": "L"},
+        {"lvl": 3, "x": 0.1, "y": 0.45, "static": True, "color":PURPLE},
+        {"lvl": 3, "x": 0.2, "y": 0.65, "static": True, "color":PURPLE},
+        {"lvl": 3, "x": 0.3, "y": 0.70, "static": True, "color":PURPLE},
+        {"lvl": 3, "x": 0.7, "y": 0.75, "static": True, "color":BLUEPURPLE},
+        {"lvl": 3, "x": 0.8, "y": 0.75, "static": True, "color":BLUEPURPLE},
+        {"lvl": 3, "x": 0.9, "y": 0.75, "static": True, "color":BLUEPURPLE},
+        {"lvl": 3, "x": 0.25, "y": 0.25, "dir": "R", "color":GREEN},
     ],
 }
 NUM_LEVELS = len(LEVEL_DEFS)  # 22
@@ -335,21 +305,11 @@ LEVEL_BACKGROUNDS = {
     5:  (97, 71, 103),      # Pink-purple split bg (sampled)
     6:  (121, 82, 43),      # Warm multicolor (sampled)
     7:  (90, 51, 109),      # Purple (sampled)
-    8:  (191, 154, 164),    # Pink/lavender multi-section (sampled)
+    8:  (20, 40, 90),       # Deep navy — contrasts with yellow, orange, red split children
     9:  (53, 57, 40),       # Dark green/brown (sampled)
     10: (254, 208, 144),    # Orange/tan (sampled)
     11: (67, 69, 125),      # Blue-purple gradient (sampled)
     12: (127, 86, 70),      # Rainbow (median approximation)
-    13: (30, 70, 50),       # Dark green
-    14: (100, 50, 50),      # Dark red
-    15: (50, 50, 100),      # Navy
-    16: (80, 80, 40),       # Olive
-    17: (50, 80, 160),      # Blue
-    18: (120, 40, 70),      # Maroon
-    19: (30, 30, 30),       # Near black
-    20: (60, 60, 100),      # Slate
-    21: (100, 30, 30),      # Crimson
-    22: (20, 20, 60),       # Midnight blue
 }
 
 # Training hyperparameters
@@ -361,7 +321,7 @@ LEVEL_BACKGROUNDS = {
 # 16 envs is optimal for 10 CPU cores (8 perf + 2 eff) — avoids context switching.
 TRAINING = {
     "n_envs": 16,              # SubprocVecEnv: 16 workers on 10 cores
-    "total_timesteps": 500_000_000,
+    "total_timesteps": 360_000_000,
     "learning_rate": 3e-4,
     "n_steps": 2048,           # Steps per env per rollout (2048 * 16 = 32768 total per update)
     "batch_size": 4096,        # Larger minibatch for longer rollouts
@@ -381,17 +341,15 @@ TRAINING = {
 # Each phase adds 2-4 levels so the agent masters each tier before moving on.
 # min_level moves up to keep training focused on the frontier, not replaying easy levels.
 CURRICULUM = [
-    (0,            1,  2,  False),   # Phase 0: Learn to shoot (lvl1-2, small balls)
-    (15_000_000,   1,  4,  False),   # Phase 1: Two-ball levels, lvl3 balls
-    (35_000_000,   2,  6,  False),   # Phase 2: First obstacles (lvl5), lvl4 balls
-    (60_000_000,   3,  8,  False),   # Phase 3: Wall dividers, multi-size levels
-    (90_000_000,   4,  11, False),   # Phase 4: Harder mixed configs
-    (120_000_000,  5,  14, True),    # Phase 5: Columns + power-ups
-    (160_000_000,  7,  16, True),    # Phase 6: Gauntlet, lane-based levels
-    (200_000_000,  9,  18, True),    # Phase 7: Chaotic multi-ball levels
-    (250_000_000,  11, 20, True),    # Phase 8: Level-5 balls, obstacle arenas
-    (310_000_000,  14, 22, True),    # Phase 9: Level-6 balls, endgame levels
-    (380_000_000,  1,  22, True),    # Phase 10: Full mastery — all levels, all power-ups
+    (0,            1, 2,  False),   # Phase 0: Learn to shoot (lvl1-2, small balls)
+    (15_000_000,   1, 4,  False),   # Phase 1: Two-ball levels, lvl3 balls
+    (35_000_000,   2, 6,  False),   # Phase 2: First obstacles (lvl5), lvl4 balls
+    (60_000_000,   3, 8,  False),   # Phase 3: Wall dividers, multi-size levels
+    (90_000_000,   4, 9, False),   # Phase 4: Harder mixed configs
+    (120_000_000,  5, 10, True),    # Phase 5: Columns + power-ups
+    (160_000_000,  6, 11, True),    # Phase 6: Gauntlet, lane-based levels
+    (200_000_000,  7, 12, True),    # Phase 7: Chaotic multi-ball levels
+    (250_000_000,  1, 12, True),    # Phase 8: Level-5 balls, obstacle arenas
 ]
 
 

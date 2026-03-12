@@ -17,9 +17,9 @@ from config import (
     BALL_FLAG_NORMAL, BALL_FLAG_STATIC,
     OBSTACLE_STATIC, OBSTACLE_DOOR, OBSTACLE_OPENING, OBSTACLE_LOWERING_CEIL,
     DOOR_TRIGGER_LEFT, DOOR_TRIGGER_RIGHT,
-    OPENING_WALL_DELAY_S, OPENING_WALL_SPEED,
+    OPENING_WALL_SPEED,
     LOWERING_CEIL_TARGET_RATIO, LOWERING_CEIL_SPEED_RATIO,
-    LEVEL_HEIGHT_OVERRIDE,
+    LEVEL_HEIGHT_OVERRIDE, LEVEL_AGENT_START,
     BALL_COLORS_BY_LEVEL,
     compute_ball_properties,
 )
@@ -119,6 +119,7 @@ class BubbleTroubleEngine:
         self.obs_h = np.zeros(MAX_OBSTACLES, dtype=np.float64)
         self.obs_type = np.zeros(MAX_OBSTACLES, dtype=np.int32)
         self.obs_timer = np.zeros(MAX_OBSTACLES, dtype=np.float64)  # For opening walls / lowering ceiling
+        self.obs_extra = np.zeros(MAX_OBSTACLES, dtype=np.float64)  # Slide direction for OBSTACLE_OPENING
         self.n_obstacles = 0
 
         # Effective play area height (may be overridden per level for short maps)
@@ -171,8 +172,8 @@ class BubbleTroubleEngine:
         self.level_cleared = False
         self.current_level = self.start_level
 
-        # Reset agent to center
-        self.agent_x = (self.width - self.agent_w) / 2.0
+        # Place agent at level-specific start position or center
+        self._place_agent_for_level(self.current_level)
 
         # Reset lasers (max_length updated after _load_level sets effective_height)
         self.laser_active[:] = False
@@ -244,6 +245,7 @@ class BubbleTroubleEngine:
         """Load obstacle rectangles for a level from OBSTACLE_DEFS."""
         self.n_obstacles = 0
         self.obs_timer[:] = 0.0
+        self.obs_extra[:] = 0.0
         if level_num not in OBSTACLE_DEFS:
             return
         defs = OBSTACLE_DEFS[level_num]
@@ -259,7 +261,12 @@ class BubbleTroubleEngine:
             self.obs_type[i] = otype
             # Initialize timer/extra data for special obstacle types
             if otype == OBSTACLE_OPENING:
-                self.obs_timer[i] = OPENING_WALL_DELAY_S
+                # obs_timer = trigger section left boundary in pixels (>= 0 = closed)
+                # obs_extra = slide direction: -1 = slide up, +1 = slide down
+                trigger_left_ratio = obs_def[5] if len(obs_def) > 5 else 0.0
+                slide_dir = float(obs_def[6]) if len(obs_def) > 6 else -1.0
+                self.obs_timer[i] = trigger_left_ratio * self.width
+                self.obs_extra[i] = slide_dir
             elif otype == OBSTACLE_LOWERING_CEIL:
                 self.obs_timer[i] = 0.0  # starts immediately
             elif otype == OBSTACLE_DOOR:
@@ -470,8 +477,8 @@ class BubbleTroubleEngine:
                 self.current_level += 1
                 self.highest_level = max(self.highest_level, self.current_level)
                 self._load_level(self.current_level)
-                # Reset agent to center, then adjust for door walls
-                self.agent_x = (self.width - self.agent_w) / 2.0
+                # Place agent at level-specific start or center, then adjust for doors
+                self._place_agent_for_level(self.current_level)
                 self._position_agent_for_doors()
                 # Reset lasers and power-ups for new level
                 self.laser_active[:] = False
@@ -497,6 +504,15 @@ class BubbleTroubleEngine:
             self.done = True
 
         return reward, terminated, truncated, self._finalize_info(info)
+
+    def _place_agent_for_level(self, level):
+        """Set agent_x to a level-specific start position, defaulting to center."""
+        if level in LEVEL_AGENT_START:
+            cx_ratio = LEVEL_AGENT_START[level]
+            self.agent_x = cx_ratio * self.width - self.agent_w / 2.0
+        else:
+            self.agent_x = (self.width - self.agent_w) / 2.0
+        self.agent_x = max(0.0, min(self.agent_x, self.width - self.agent_w))
 
     def _position_agent_for_doors(self):
         """Place the agent on the trigger side of any door wall.
@@ -548,15 +564,30 @@ class BubbleTroubleEngine:
                 i += 1
 
             elif otype == OBSTACLE_OPENING:
-                # Opening walls: count down timer, then slide apart and remove
-                self.obs_timer[i] -= dt
-                if self.obs_timer[i] <= 0:
-                    # Wall is opening — shrink height from both ends
-                    shrink = OPENING_WALL_SPEED * self.height * dt
-                    self.obs_y[i] += shrink / 2
-                    self.obs_h[i] -= shrink
-                    if self.obs_h[i] <= 0:
-                        # Fully open — remove this obstacle
+                # Opening walls: trigger-based.
+                # obs_timer >= 0: closed; value = left boundary (px) of trigger section.
+                # obs_timer < 0: animating — each half slides out in obs_extra direction.
+                if self.obs_timer[i] >= 0:
+                    # Check if the trigger section is empty of balls
+                    trigger_left = self.obs_timer[i]         # pixels
+                    trigger_right = self.obs_x[i]            # left edge of this obstacle
+                    should_open = True
+                    if n > 0:
+                        ball_cx = self.ball_x[:n] + self.ball_radius[:n]
+                        in_section = (ball_cx >= trigger_left) & (ball_cx < trigger_right)
+                        if np.any(in_section):
+                            should_open = False
+                    if should_open:
+                        self.obs_timer[i] = -1.0  # start sliding
+                else:
+                    # Animating: slide in obs_extra direction until fully off screen
+                    slide_dir = self.obs_extra[i]  # -1 = up, +1 = down
+                    speed = OPENING_WALL_SPEED * self.height * dt
+                    self.obs_y[i] += slide_dir * speed
+                    if slide_dir < 0 and self.obs_y[i] + self.obs_h[i] <= 0:
+                        self._remove_obstacle(i)
+                        continue
+                    elif slide_dir > 0 and self.obs_y[i] >= self.height:
                         self._remove_obstacle(i)
                         continue
                 i += 1
@@ -581,6 +612,7 @@ class BubbleTroubleEngine:
             self.obs_h[idx] = self.obs_h[last]
             self.obs_type[idx] = self.obs_type[last]
             self.obs_timer[idx] = self.obs_timer[last]
+            self.obs_extra[idx] = self.obs_extra[last]
         self.n_obstacles -= 1
 
     def _try_fire_laser(self):
@@ -916,6 +948,10 @@ class BubbleTroubleEngine:
 
             # Open door (timer < 0) lets agent walk through
             if self.obs_type[oi] == OBSTACLE_DOOR and self.obs_timer[oi] < 0:
+                continue
+
+            # Animating opening wall (timer < 0) lets agent walk through
+            if self.obs_type[oi] == OBSTACLE_OPENING and self.obs_timer[oi] < 0:
                 continue
 
             # Only block agent if obstacle bottom reaches agent's vertical range

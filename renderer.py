@@ -9,7 +9,6 @@ from config import (
     POWERUP_DOUBLE_HARPOON, POWERUP_FORCE_FIELD, POWERUP_HOURGLASS,
     DEFAULT_FPS, LEVEL_BACKGROUNDS, NUM_LEVELS,
     OBSTACLE_DOOR, OBSTACLE_LOWERING_CEIL, OBSTACLE_OPENING,
-    BALL_FLAG_STATIC,
     BLACK, WHITE, RED, YELLOW, GREEN, BLUE, ORANGE, PURPLE,
     CYAN, GRAY, DARK_GRAY, DARK_RED, CRIMSON,
 )
@@ -165,16 +164,13 @@ class PygameRenderer:
             pygame.draw.rect(surface, CYAN, agent_rect, 2)
 
         # Draw balls
-        ball_flags = state.get("ball_flags", [])
         for i in range(state["n_balls"]):
             cx = int(state["ball_x"][i] + state["ball_radius"][i])
             cy = int(state["ball_y"][i] + state["ball_radius"][i])
             r = int(state["ball_radius"][i])
             color = tuple(state["ball_color"][i])
             pygame.draw.circle(surface, color, (cx, cy), r)
-            # Static ball indicator: thin white outline ring
-            if i < len(ball_flags) and ball_flags[i] == BALL_FLAG_STATIC:
-                pygame.draw.circle(surface, WHITE, (cx, cy), r + 2, 1)
+            pygame.draw.circle(surface, WHITE, (cx, cy), r, 1)  # thin outline on all balls
 
         # Draw ground power-up
         if state.get("powerup_on_ground"):
