@@ -7,27 +7,20 @@ import numpy as np
 import pygame
 from config import (
     POWERUP_DOUBLE_HARPOON, POWERUP_FORCE_FIELD, POWERUP_HOURGLASS,
-    DEFAULT_FPS,
+    DEFAULT_FPS, LEVEL_BACKGROUNDS, NUM_LEVELS,
+    OBSTACLE_DOOR, OBSTACLE_LOWERING_CEIL, OBSTACLE_OPENING,
+    BALL_FLAG_STATIC,
+    BLACK, WHITE, RED, YELLOW, GREEN, BLUE, ORANGE, PURPLE,
+    CYAN, GRAY, DARK_GRAY, DARK_RED, CRIMSON,
 )
 
-# Colors
-BLACK = (0, 0, 0)
-WHITE = (255, 255, 255)
-RED = (255, 0, 0)
-GREEN = (0, 200, 0)
-BLUE = (100, 180, 255)
-YELLOW = (245, 237, 7)
-ORANGE = (237, 141, 45)
-PURPLE = (160, 50, 220)
-CYAN = (0, 220, 220)
-GRAY = (120, 120, 120)
-
-BALL_COLORS_BY_LEVEL = {
-    1: YELLOW,
-    2: BLUE,
-    3: GREEN,
-    4: RED,
-}
+# Renderer-only UI colors
+STONE          = (90,  75,  55)
+LASER_COLOR    = (200, 200, 200)
+DOOR_COLOR     = (75,  65,  50)   # Slightly different shade from stone
+DOOR_BORDER    = (55,  50,  40)
+DOOR_OPEN_COLOR  = (50, 45, 35)   # Dimmer shade for open door (passable by agent)
+DOOR_OPEN_BORDER = (40, 35, 28)
 
 POWERUP_COLORS = {
     POWERUP_DOUBLE_HARPOON: ORANGE,
@@ -41,6 +34,9 @@ POWERUP_LABELS = {
     POWERUP_HOURGLASS: "T",
 }
 
+# HUD layout
+HUD_HEIGHT = 28  # Bottom score bar height
+
 
 class PygameRenderer:
     """Renders engine state using pygame."""
@@ -52,12 +48,16 @@ class PygameRenderer:
 
         pygame.init()
         pygame.display.init()
-        self.window = pygame.display.set_mode((width, height))
+        self.window = pygame.display.set_mode((width, height + HUD_HEIGHT))
         pygame.display.set_caption("Bubble Trouble RL")
         self.clock = pygame.time.Clock()
 
-        self.font = pygame.font.Font(None, 24)
+        self.font = pygame.font.Font(None, 22)
         self.big_font = pygame.font.Font(None, 36)
+        self.hud_font = pygame.font.Font(None, 20)
+
+        # Pop effect state: list of (x, y, radius, frames_remaining)
+        self._pop_effects = []
 
         # Load agent sprites if available, fall back to rectangle
         self.agent_sprites = {}
@@ -85,22 +85,73 @@ class PygameRenderer:
 
     def _draw(self, state):
         """Draw all game elements to a surface."""
-        surface = pygame.Surface((self.width, self.height))
-        surface.fill(BLACK)
+        total_height = self.height + HUD_HEIGHT
+        surface = pygame.Surface((self.width, total_height))
 
-        # Draw lasers
+        # Per-level background
+        level = state.get("current_level", 1)
+        bg_color = LEVEL_BACKGROUNDS.get(level, BLACK)
+        surface.fill(bg_color)
+
+        # Effective height (short map levels have raised floor)
+        eff_h = state.get("effective_height", self.height)
+
+        # Short map: draw stone floor at effective_height
+        if eff_h < self.height:
+            floor_y = int(eff_h)
+            pygame.draw.rect(surface, STONE, (0, floor_y, self.width, self.height - floor_y))
+            pygame.draw.line(surface, DARK_GRAY, (0, floor_y), (self.width, floor_y), 2)
+
+        # --- "Get ready" splash for first 90 frames ---
+        steps = state.get("steps", 999)
+
+        # --- Draw obstacles ---
+        n_obs = state.get("n_obstacles", 0)
+        obs_types = state.get("obstacle_type", [])
+        obs_timers = state.get("obstacle_timer", [])
+        for i in range(n_obs):
+            ox = int(state["obstacle_x"][i])
+            oy = int(state["obstacle_y"][i])
+            ow = int(state["obstacle_w"][i])
+            oh = int(state["obstacle_h"][i])
+            otype = int(obs_types[i]) if i < len(obs_types) else 0
+
+            if otype == OBSTACLE_DOOR:
+                # Door wall: closed = solid shade, open = dimmer shade (agent can pass)
+                is_open = i < len(obs_timers) and obs_timers[i] < 0
+                if is_open:
+                    pygame.draw.rect(surface, DOOR_OPEN_COLOR, (ox, oy, ow, oh))
+                    pygame.draw.rect(surface, DOOR_OPEN_BORDER, (ox, oy, ow, oh), 1)
+                else:
+                    pygame.draw.rect(surface, DOOR_COLOR, (ox, oy, ow, oh))
+                    pygame.draw.rect(surface, DOOR_BORDER, (ox, oy, ow, oh), 1)
+            elif otype == OBSTACLE_LOWERING_CEIL:
+                # Lowering ceiling: dark red bar descending from top
+                if oh > 0:
+                    pygame.draw.rect(surface, DARK_RED, (ox, oy, ow, int(oh)))
+                    pygame.draw.rect(surface, CRIMSON, (ox, oy, ow, int(oh)), 2)
+            elif otype == OBSTACLE_OPENING:
+                # Opening wall: stone wall (shrinking as it opens)
+                if oh > 1:
+                    pygame.draw.rect(surface, STONE, (ox, oy, ow, int(oh)))
+                    pygame.draw.rect(surface, DARK_GRAY, (ox, oy, ow, int(oh)), 1)
+            else:
+                pygame.draw.rect(surface, STONE, (ox, oy, ow, oh))
+                pygame.draw.rect(surface, DARK_GRAY, (ox, oy, ow, oh), 1)
+
+        # Draw lasers (thin gray/white line)
         for i in range(len(state["laser_active"])):
             if state["laser_active"][i]:
-                lx = state["laser_x"][i]
+                lx = int(state["laser_x"][i])
                 ll = state["laser_length"][i]
-                rect = pygame.Rect(lx, self.height - ll, 2, ll)
-                pygame.draw.rect(surface, RED, rect)
+                top_y = int(eff_h - ll)
+                pygame.draw.line(surface, LASER_COLOR, (lx, int(eff_h)), (lx, top_y), 1)
 
         # Draw agent
         ax = state["agent_x"]
         aw = state["agent_w"]
         ah = state["agent_h"]
-        agent_rect = pygame.Rect(ax, self.height - ah, aw, ah)
+        agent_rect = pygame.Rect(ax, int(eff_h) - ah, aw, ah)
 
         if self.agent_sprites:
             sprite = self.agent_sprites["still"]
@@ -114,13 +165,16 @@ class PygameRenderer:
             pygame.draw.rect(surface, CYAN, agent_rect, 2)
 
         # Draw balls
+        ball_flags = state.get("ball_flags", [])
         for i in range(state["n_balls"]):
             cx = int(state["ball_x"][i] + state["ball_radius"][i])
             cy = int(state["ball_y"][i] + state["ball_radius"][i])
             r = int(state["ball_radius"][i])
-            lvl = state["ball_level"][i]
-            color = BALL_COLORS_BY_LEVEL.get(lvl, WHITE)
+            color = tuple(state["ball_color"][i])
             pygame.draw.circle(surface, color, (cx, cy), r)
+            # Static ball indicator: thin white outline ring
+            if i < len(ball_flags) and ball_flags[i] == BALL_FLAG_STATIC:
+                pygame.draw.circle(surface, WHITE, (cx, cy), r + 2, 1)
 
         # Draw ground power-up
         if state.get("powerup_on_ground"):
@@ -134,32 +188,59 @@ class PygameRenderer:
             txt_rect = txt.get_rect(center=(px, py))
             surface.blit(txt, txt_rect)
 
-        # Draw HUD
-        self._draw_hud(surface, state)
+        # --- Pop effects ---
+        # Add new pops from state
+        for (px, py, pr) in state.get("recent_pops", []):
+            self._pop_effects.append((px, py, pr, 10))  # 10 frames duration
 
-        return surface
+        # Draw and decay existing pop effects
+        remaining = []
+        for (px, py, pr, frames) in self._pop_effects:
+            alpha = frames / 10.0
+            color_val = int(255 * alpha)
+            star_color = (color_val, color_val, min(255, int(color_val * 0.6)))
+            size = int(pr * 1.5 * alpha)
+            if size > 1:
+                # Simple star-burst: 4 lines radiating from center
+                ipx, ipy = int(px), int(py)
+                pygame.draw.line(surface, star_color, (ipx - size, ipy), (ipx + size, ipy), 1)
+                pygame.draw.line(surface, star_color, (ipx, ipy - size), (ipx, ipy + size), 1)
+                pygame.draw.line(surface, star_color, (ipx - size//2, ipy - size//2),
+                                 (ipx + size//2, ipy + size//2), 1)
+                pygame.draw.line(surface, star_color, (ipx + size//2, ipy - size//2),
+                                 (ipx - size//2, ipy + size//2), 1)
+            if frames > 1:
+                remaining.append((px, py, pr, frames - 1))
+        self._pop_effects = remaining
 
-    def _draw_hud(self, surface, state):
-        """Draw heads-up display: level, timer, power-up indicators."""
-        # Level indicator
-        level_text = self.font.render(f"Level {state['current_level']}", True, WHITE)
-        surface.blit(level_text, (5, 5))
-
-        # Timer bar
+        # --- Timer bar (at bottom of play area, above HUD) ---
         if state["max_steps"] > 0:
-            remaining = max(0, state["max_steps"] - state["steps"])
-            ratio = remaining / state["max_steps"]
-            bar_width = self.width - 120
-            bar_x = 80
-            bar_y = 5
-            bar_h = 10
-            # Background
-            pygame.draw.rect(surface, GRAY, (bar_x, bar_y, bar_width, bar_h))
-            # Fill
-            color = GREEN if ratio > 0.3 else RED
-            pygame.draw.rect(surface, color, (bar_x, bar_y, int(bar_width * ratio), bar_h))
+            time_remaining = max(0, state["max_steps"] - state["steps"])
+            ratio = time_remaining / state["max_steps"]
+            bar_y = self.height - 4
+            bar_width = self.width
+            pygame.draw.rect(surface, DARK_GRAY, (0, bar_y, bar_width, 4))
+            bar_color = RED
+            pygame.draw.rect(surface, bar_color, (0, bar_y, int(bar_width * ratio), 4))
 
-        # Active power-up indicators (top right)
+        # --- HUD score bar (bottom strip) ---
+        hud_y = self.height
+        pygame.draw.rect(surface, BLACK, (0, hud_y, self.width, HUD_HEIGHT))
+
+        # Player 1 label (left)
+        p1_txt = self.hud_font.render("PLAYER 1", True, WHITE)
+        surface.blit(p1_txt, (8, hud_y + 6))
+
+        # Level (center, red)
+        level_txt = self.hud_font.render(f"LEVEL {level}", True, RED)
+        level_rect = level_txt.get_rect(center=(self.width // 2, hud_y + HUD_HEIGHT // 2))
+        surface.blit(level_txt, level_rect)
+
+        # Player 2 label (right)
+        p2_txt = self.hud_font.render("PLAYER 2", True, WHITE)
+        surface.blit(p2_txt, (self.width - p2_txt.get_width() - 8, hud_y + 6))
+
+        # Active power-up indicators (top right of play area)
         indicators = []
         if state.get("has_double_harpoon"):
             indicators.append(("2x", ORANGE))
@@ -171,7 +252,20 @@ class PygameRenderer:
 
         for i, (label, color) in enumerate(indicators):
             txt = self.font.render(label, True, color)
-            surface.blit(txt, (self.width - 80, 20 + i * 20))
+            surface.blit(txt, (self.width - 80, 5 + i * 18))
+
+        # --- "Get ready" splash ---
+        if steps < 90:
+            overlay = pygame.Surface((280, 50), pygame.SRCALPHA)
+            overlay.fill((0, 0, 0, 160))
+            ox = (self.width - 280) // 2
+            oy = (self.height - 50) // 2
+            surface.blit(overlay, (ox, oy))
+            ready_txt = self.big_font.render("Get ready", True, YELLOW)
+            ready_rect = ready_txt.get_rect(center=(self.width // 2, self.height // 2))
+            surface.blit(ready_txt, ready_rect)
+
+        return surface
 
     def close(self):
         pygame.display.quit()

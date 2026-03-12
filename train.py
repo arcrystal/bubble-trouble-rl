@@ -173,7 +173,7 @@ def train(args):
     )
 
     checkpoint_callback = CheckpointCallback(
-        save_freq=max(200_000 // n_envs, 1000),  # ~every 200k total steps
+        save_freq=max(10_000_000 // n_envs, 1000),  # ~every 200k total steps
         save_path=os.path.join(args.checkpoint_dir, "periodic"),
         name_prefix="ppo_bubble",
         verbose=1,

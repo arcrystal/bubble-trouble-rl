@@ -6,7 +6,7 @@ import numpy as np
 from engine import BubbleTroubleEngine
 from config import (
     DEFAULT_WIDTH, DEFAULT_HEIGHT, DEFAULT_FPS,
-    MAX_OBS_BALLS, OBS_SIZE, MAX_BALLS, DEFAULT_MAX_STEPS,
+    MAX_OBS_BALLS, OBS_SIZE, MAX_BALLS, MAX_OBSTACLES, DEFAULT_MAX_STEPS,
     NUM_LEVELS, HOURGLASS_DURATION_SECONDS,
 )
 
@@ -14,7 +14,7 @@ from config import (
 class BubbleTroubleEnv(gym.Env):
     """Bubble Trouble as a Gymnasium environment.
 
-    Observation: 110-element float32 vector (see config.py for layout).
+    Observation: 150-element float32 vector (see config.py for layout).
     Actions: 0=LEFT, 1=RIGHT, 2=SHOOT, 3=STILL.
     """
 
@@ -60,10 +60,12 @@ class BubbleTroubleEnv(gym.Env):
         return obs, reward, terminated, truncated, info
 
     def _get_obs(self):
-        """Build the 110-element observation vector."""
+        """Build the 150-element observation vector."""
         obs = np.zeros(OBS_SIZE, dtype=np.float32)
         e = self.engine
         n = e.n_balls
+        width = e.width
+        height = e.height
         agent_cx = e.agent_x + e.agent_w / 2.0
 
         # --- Ball features (sorted by distance to agent center) ---
@@ -78,11 +80,11 @@ class BubbleTroubleEnv(gym.Env):
 
             # Normalized ball features
             base = 0
-            obs[base:base + k] = (e.ball_x[idx] + e.ball_radius[idx]) / e.width * 2 - 1  # x: [-1, 1]
+            obs[base:base + k] = (e.ball_x[idx] + e.ball_radius[idx]) / width * 2 - 1  # x: [-1, 1]
             base = MAX_OBS_BALLS
-            obs[base:base + k] = (e.ball_y[idx] + e.ball_radius[idx]) / e.height * 2 - 1  # y: [-1, 1]
+            obs[base:base + k] = (e.ball_y[idx] + e.ball_radius[idx]) / height * 2 - 1  # y: [-1, 1]
             base = MAX_OBS_BALLS * 2
-            max_xspeed = e.width / 9.4
+            max_xspeed = width / 9.4
             obs[base:base + k] = e.ball_xspeed[idx] / max_xspeed  # xspeed: ~[-1, 1]
             base = MAX_OBS_BALLS * 3
             obs[base:base + k] = e.ball_yspeed[idx] / e.max_possible_yspeed  # yspeed: ~[-1, 1], fixed normalizer
@@ -93,7 +95,7 @@ class BubbleTroubleEnv(gym.Env):
 
         # --- Agent features (5) ---
         agent_base = MAX_OBS_BALLS * 6
-        obs[agent_base] = agent_cx / e.width * 2 - 1  # agent x: [-1, 1]
+        obs[agent_base] = agent_cx / width * 2 - 1  # agent x: [-1, 1]
 
         any_laser_active = np.any(e.laser_active[:e.max_lasers])
         obs[agent_base + 1] = 1.0 if any_laser_active else -1.0  # laser active
@@ -104,13 +106,13 @@ class BubbleTroubleEnv(gym.Env):
             if e.laser_active[i] and e.laser_length[i] > max_laser_len:
                 max_laser_len = e.laser_length[i]
                 best_laser_idx = i
-        obs[agent_base + 2] = max_laser_len / e.height * 2 - 1  # laser length: [-1, 1]
+        obs[agent_base + 2] = max_laser_len / height * 2 - 1  # laser length: [-1, 1]
 
         # Laser x-position: where the active laser is horizontally
         if best_laser_idx >= 0:
-            obs[agent_base + 3] = e.laser_x[best_laser_idx] / e.width * 2 - 1
+            obs[agent_base + 3] = e.laser_x[best_laser_idx] / width * 2 - 1
         else:
-            obs[agent_base + 3] = agent_cx / e.width * 2 - 1  # continuity: laser would fire from here
+            obs[agent_base + 3] = agent_cx / width * 2 - 1  # continuity: laser would fire from here
 
         # Can-fire: can the agent fire a new laser right now?
         can_fire = any(not e.laser_active[i] for i in range(e.max_lasers))
@@ -121,7 +123,7 @@ class BubbleTroubleEnv(gym.Env):
         obs[global_base] = n / MAX_BALLS * 2 - 1  # ball count ratio: [-1, 1]
         remaining = max(0, e.max_steps - e.steps)
         obs[global_base + 1] = remaining / e.max_steps * 2 - 1  # time remaining: [-1, 1]
-        obs[global_base + 2] = e.current_level / NUM_LEVELS * 2 - 1  # current level: [-0.71, 1.0]
+        obs[global_base + 2] = e.current_level / NUM_LEVELS * 2 - 1  # current level: auto-scales with 22
 
         # --- Power-up features (6) ---
         pu_base = global_base + 3
@@ -129,12 +131,26 @@ class BubbleTroubleEnv(gym.Env):
         obs[pu_base + 1] = 1.0 if e.has_force_field else -1.0
         obs[pu_base + 2] = 1.0 if e.hourglass_active else -1.0
         obs[pu_base + 3] = (e.hourglass_timer / HOURGLASS_DURATION_SECONDS * 2 - 1) if e.hourglass_active else -1.0
-        obs[pu_base + 4] = 1.0 if e.powerup_on_ground else -1.0
-        if e.powerup_on_ground:
-            dist = (e.powerup_ground_x - agent_cx) / e.width * 2  # signed distance
+        powerup_visible = e.powerup_on_ground or e.powerup_falling
+        obs[pu_base + 4] = 1.0 if powerup_visible else -1.0
+        if powerup_visible:
+            dist = (e.powerup_ground_x - agent_cx) / width * 2  # signed distance
             obs[pu_base + 5] = np.clip(dist, -1.0, 1.0)
         else:
             obs[pu_base + 5] = 0.0
+
+        # --- Obstacle features (MAX_OBSTACLES * 5 = 40) ---
+        obs_base = pu_base + 6
+        no = e.n_obstacles
+        if no > 0:
+            k = min(no, MAX_OBSTACLES)
+            for oi in range(k):
+                b = obs_base + oi * 5
+                obs[b]     = (e.obs_x[oi] + e.obs_w[oi] / 2) / width * 2 - 1   # center x
+                obs[b + 1] = (e.obs_y[oi] + e.obs_h[oi] / 2) / height * 2 - 1  # center y
+                obs[b + 2] = e.obs_w[oi] / width * 2 - 1                         # width
+                obs[b + 3] = e.obs_h[oi] / height * 2 - 1                        # height
+                obs[b + 4] = e.obs_type[oi] / 2.0 * 2 - 1                        # type: normalized
 
         return obs
 
