@@ -111,6 +111,7 @@ OBSTACLE_STATIC = 0    # Standard solid wall/platform
 OBSTACLE_DOOR = 1      # Solid wall that disappears when all balls on one side are cleared
 OBSTACLE_OPENING = 2   # Wall that splits apart and disappears after a delay
 OBSTACLE_LOWERING_CEIL = 3  # Ceiling bar that descends over time
+MAX_OBSTACLE_TYPE = 3  # Largest obstacle type value — used for obs normalization
 
 # Door wall trigger side (6th element in obstacle def tuple for OBSTACLE_DOOR)
 DOOR_TRIGGER_LEFT = 0   # Opens when no balls remain to the LEFT of the wall
@@ -140,7 +141,7 @@ OBSTACLE_DEFS = {
     5:  [(0.48, 0.0,  0.04, 0.75),                                    # Solid wall (top 75%)
          (0.48, 0.75, 0.04, 0.25, OBSTACLE_DOOR, DOOR_TRIGGER_LEFT)], # Door (bottom 25%) opens when left cleared
     6:  [(0.0, 0.0, 1.0, 0.02, OBSTACLE_LOWERING_CEIL)],       # Lowering ceiling bar
-    7:  [(0.0, 0.0, 1.0, 0.02, OBSTACLE_STATIC)],       # short map with solid ceiling (no lowering)
+    7:  [(0.0, 0.0, 1.0, 0.39, OBSTACLE_STATIC)],       # short map — stone ceiling bottom at ~150px; play area 150-270px
     8:  [# Wall 1 (x=0.34): each half slides OUT from center when left section is cleared.
          # Tuple: (x, y, w, h, type, trigger_left_ratio, slide_dir)
          # trigger_left_ratio: left boundary of section that must be emptied to open.
@@ -203,8 +204,8 @@ OBS_PER_BALL = 6    # x, y, xspeed, yspeed, radius, is_active
 OBS_AGENT = 5       # x, laser_active, laser_length, laser_x, can_fire
 OBS_GLOBAL = 3      # num_balls_ratio, steps_remaining_ratio, current_level
 OBS_POWERUP = 6     # has_double, has_shield, hourglass_active, hourglass_time, powerup_on_ground, powerup_dist
-OBS_OBSTACLES = MAX_OBSTACLES * 5  # cx, cy, w, h, type per obstacle
-OBS_SIZE = MAX_OBS_BALLS * OBS_PER_BALL + OBS_AGENT + OBS_GLOBAL + OBS_POWERUP + OBS_OBSTACLES  # 150
+OBS_OBSTACLES = MAX_OBSTACLES * 6  # cx, cy, w, h, type, is_passable per obstacle
+OBS_SIZE = MAX_OBS_BALLS * OBS_PER_BALL + OBS_AGENT + OBS_GLOBAL + OBS_POWERUP + OBS_OBSTACLES  # 158
 
 # Level definitions — each level is a list of ball dicts.
 # Required keys: "lvl" (1-6), "x" (0-1 ratio of width), "y" (0-1 ratio of height)

@@ -57,6 +57,7 @@ class PygameRenderer:
 
         # Pop effect state: list of (x, y, radius, frames_remaining)
         self._pop_effects = []
+        self._agent_prev_x = None  # track previous x to select directional sprite
 
         # Load agent sprites if available, fall back to rectangle
         self.agent_sprites = {}
@@ -153,8 +154,14 @@ class PygameRenderer:
         agent_rect = pygame.Rect(ax, int(eff_h) - ah, aw, ah)
 
         if self.agent_sprites:
-            sprite = self.agent_sprites["still"]
-            scaled = pygame.transform.scale(sprite, (aw, ah))
+            if self._agent_prev_x is not None and ax < self._agent_prev_x - 0.1:
+                sprite_name = "left"
+            elif self._agent_prev_x is not None and ax > self._agent_prev_x + 0.1:
+                sprite_name = "right"
+            else:
+                sprite_name = "still"
+            self._agent_prev_x = ax
+            scaled = pygame.transform.scale(self.agent_sprites[sprite_name], (aw, ah))
             surface.blit(scaled, agent_rect)
         else:
             pygame.draw.rect(surface, WHITE, agent_rect)

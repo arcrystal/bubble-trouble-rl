@@ -8,13 +8,14 @@ from config import (
     DEFAULT_WIDTH, DEFAULT_HEIGHT, DEFAULT_FPS,
     MAX_OBS_BALLS, OBS_SIZE, MAX_BALLS, MAX_OBSTACLES, DEFAULT_MAX_STEPS,
     NUM_LEVELS, HOURGLASS_DURATION_SECONDS,
+    OBSTACLE_DOOR, OBSTACLE_OPENING, OBSTACLE_LOWERING_CEIL, MAX_OBSTACLE_TYPE,
 )
 
 
 class BubbleTroubleEnv(gym.Env):
     """Bubble Trouble as a Gymnasium environment.
 
-    Observation: 150-element float32 vector (see config.py for layout).
+    Observation: 158-element float32 vector (see config.py for layout).
     Actions: 0=LEFT, 1=RIGHT, 2=SHOOT, 3=STILL.
     """
 
@@ -60,7 +61,7 @@ class BubbleTroubleEnv(gym.Env):
         return obs, reward, terminated, truncated, info
 
     def _get_obs(self):
-        """Build the 150-element observation vector."""
+        """Build the 158-element observation vector."""
         obs = np.zeros(OBS_SIZE, dtype=np.float32)
         e = self.engine
         n = e.n_balls
@@ -139,18 +140,31 @@ class BubbleTroubleEnv(gym.Env):
         else:
             obs[pu_base + 5] = 0.0
 
-        # --- Obstacle features (MAX_OBSTACLES * 5 = 40) ---
+        # --- Obstacle features (MAX_OBSTACLES * 6 = 48) ---
+        # Per obstacle: center_x, center_y, width, height, type, is_passable
+        # is_passable: 1.0 = agent can currently walk through, -1.0 = blocked
+        #   STATIC:         always -1.0
+        #   DOOR:           1.0 when open (timer < 0), else -1.0
+        #   OPENING:        1.0 when animating/sliding (timer < 0), else -1.0
+        #   LOWERING_CEIL:  always 1.0 (never blocks agent horizontally)
         obs_base = pu_base + 6
         no = e.n_obstacles
         if no > 0:
             k = min(no, MAX_OBSTACLES)
             for oi in range(k):
-                b = obs_base + oi * 5
-                obs[b]     = (e.obs_x[oi] + e.obs_w[oi] / 2) / width * 2 - 1   # center x
-                obs[b + 1] = (e.obs_y[oi] + e.obs_h[oi] / 2) / height * 2 - 1  # center y
-                obs[b + 2] = e.obs_w[oi] / width * 2 - 1                         # width
-                obs[b + 3] = e.obs_h[oi] / height * 2 - 1                        # height
-                obs[b + 4] = e.obs_type[oi] / 2.0 * 2 - 1                        # type: normalized
+                b = obs_base + oi * 6
+                otype = int(e.obs_type[oi])
+                obs[b]     = (e.obs_x[oi] + e.obs_w[oi] / 2) / width * 2 - 1    # center x
+                obs[b + 1] = (e.obs_y[oi] + e.obs_h[oi] / 2) / height * 2 - 1   # center y
+                obs[b + 2] = e.obs_w[oi] / width * 2 - 1                          # width
+                obs[b + 3] = e.obs_h[oi] / height * 2 - 1                         # height
+                obs[b + 4] = otype / MAX_OBSTACLE_TYPE * 2 - 1                    # type: [-1, 1]
+                if otype == OBSTACLE_DOOR or otype == OBSTACLE_OPENING:
+                    obs[b + 5] = 1.0 if e.obs_timer[oi] < 0 else -1.0
+                elif otype == OBSTACLE_LOWERING_CEIL:
+                    obs[b + 5] = 1.0   # never blocks agent horizontally
+                else:
+                    obs[b + 5] = -1.0  # STATIC: always blocks
 
         return obs
 
