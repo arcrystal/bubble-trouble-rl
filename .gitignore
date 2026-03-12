@@ -139,4 +139,4 @@ working_rewards.txt
 *.iml
 checkpoints/
 logs/
-
+game_levels/
