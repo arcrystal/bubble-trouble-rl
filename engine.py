@@ -9,10 +9,10 @@ from config import (
     DEFAULT_WIDTH, DEFAULT_HEIGHT, DEFAULT_FPS,
     AGENT_WIDTH_RATIO, AGENT_HEIGHT_RATIO, AGENT_SPEED_DIVISOR,
     AGENT_HITBOX_RECTS, AGENT_HITBOX_SHRINK,
-    LASER_WIDTH_RATIO, BALL_XSPEED_DIVISOR, MAX_BALLS, MAX_BALL_LEVEL, MAX_OBSTACLES,
+    LASER_WIDTH_RATIO, BALL_XSPEED_DIVISOR, MAX_BALLS, MAX_BALL_LEVEL, MAX_OBSTACLES, BALL_LEVELS,
     POP_BASE_IMPULSE_RATIO, POP_VELOCITY_INHERIT, POP_CHAIN_GAIN, POP_MASS_EXPONENT,
-    POWERUP_NONE, POWERUP_DOUBLE_HARPOON, POWERUP_FORCE_FIELD, POWERUP_HOURGLASS,
-    POWERUP_DROP_CHANCE, HOURGLASS_DURATION_SECONDS, HOURGLASS_SPEED_FACTOR,
+    POWERUP_NONE, POWERUP_LASER_GRID, POWERUP_HOURGLASS,
+    POWERUP_DROP_CHANCE, LASER_GRID_STICK_SECONDS, HOURGLASS_ADD_SECONDS,
     LEVEL_DEFS, OBSTACLE_DEFS, NUM_LEVELS, DEFAULT_MAX_STEPS, REWARDS,
     BALL_FLAG_NORMAL, BALL_FLAG_STATIC,
     OBSTACLE_STATIC, OBSTACLE_DOOR, OBSTACLE_OPENING, OBSTACLE_LOWERING_CEIL,
@@ -32,15 +32,19 @@ REWARDS_POP_BALL = REWARDS["pop_ball"]
 REWARDS_DANGER_SPLIT = REWARDS["danger_split_penalty"]
 REWARDS_FINISH_LEVEL = REWARDS["finish_level"]
 REWARDS_TIME_BONUS_SCALE = REWARDS["time_bonus_scale"]
+REWARDS_TIMEOUT = REWARDS["timeout"]
 REWARDS_GAME_OVER = REWARDS["game_over"]
 REWARDS_PICKUP = REWARDS["pickup_powerup"]
 REWARDS_CLEAR_ALL = REWARDS["clear_all_levels"]
 
-# Actions
-ACTION_LEFT = 0
-ACTION_RIGHT = 1
-ACTION_SHOOT = 2
-ACTION_STILL = 3
+# Movement actions (first element of MultiDiscrete)
+MOVE_LEFT = 0
+MOVE_RIGHT = 1
+MOVE_STILL = 2
+
+# Shoot actions (second element of MultiDiscrete)
+SHOOT_YES = 0
+SHOOT_NO = 1
 
 
 class BubbleTroubleEngine:
@@ -110,6 +114,7 @@ class BubbleTroubleEngine:
         self.ball_color = np.zeros((MAX_BALLS, 3), dtype=np.uint8)  # RGB color inherited from ancestor
         self.ball_chain_depth = np.zeros(MAX_BALLS, dtype=np.int32)  # consecutive pops without floor bounce
         self.ball_inherit_bounciness = np.ones(MAX_BALLS, dtype=bool)  # if False, children get bounce=1.0
+        self.ball_section = np.full(MAX_BALLS, -1, dtype=np.int32)   # ancestry ID (index in level def), -1 = none
         self.n_balls = 0
 
         # Obstacle state arrays (preallocated)
@@ -120,6 +125,7 @@ class BubbleTroubleEngine:
         self.obs_type = np.zeros(MAX_OBSTACLES, dtype=np.int32)
         self.obs_timer = np.zeros(MAX_OBSTACLES, dtype=np.float64)  # For opening walls / lowering ceiling
         self.obs_extra = np.zeros(MAX_OBSTACLES, dtype=np.float64)  # Slide direction for OBSTACLE_OPENING
+        self.obs_section = np.full(MAX_OBSTACLES, -1, dtype=np.int32)  # ancestry trigger (-1 = position-based)
         self.n_obstacles = 0
 
         # Effective play area height (may be overridden per level for short maps)
@@ -134,13 +140,13 @@ class BubbleTroubleEngine:
         self.laser_max_length = np.full(2, float(height), dtype=np.float64)  # max reachable (obstacle ceiling)
         self.laser_active = np.zeros(2, dtype=bool)
         self.laser_hit_ball = np.zeros(2, dtype=bool)  # track if laser hit before deactivating
+        self.laser_stuck = np.zeros(2, dtype=bool)       # True when grid-laser is stuck at ceiling
+        self.laser_stuck_timer = np.zeros(2, dtype=np.float64)  # countdown while stuck
+        self.laser_is_grid = np.zeros(2, dtype=bool)    # True for lasers fired with grid power-up
         self.max_lasers = 1  # 1 normally, 2 with double harpoon
 
         # Power-up state
-        self.has_double_harpoon = False
-        self.has_force_field = False
-        self.hourglass_active = False
-        self.hourglass_timer = 0.0
+        self.has_laser_grid = False
         # Dropped power-up (falls from pop position to floor, then pickable)
         self.powerup_on_ground = False  # True once it has landed
         self.powerup_falling = False    # True while falling
@@ -179,6 +185,9 @@ class BubbleTroubleEngine:
         self.laser_active[:] = False
         self.laser_length[:] = 0.0
         self.laser_hit_ball[:] = False
+        self.laser_stuck[:] = False
+        self.laser_stuck_timer[:] = 0.0
+        self.laser_is_grid[:] = False
         self.max_lasers = 1
 
         # Reset pop effects
@@ -192,10 +201,7 @@ class BubbleTroubleEngine:
         self.highest_level = self.start_level
 
         # Reset power-ups
-        self.has_double_harpoon = False
-        self.has_force_field = False
-        self.hourglass_active = False
-        self.hourglass_timer = 0.0
+        self.has_laser_grid = False
         self.powerup_on_ground = False
         self.powerup_falling = False
         self.powerup_ground_type = POWERUP_NONE
@@ -223,7 +229,7 @@ class BubbleTroubleEngine:
 
         if self.sequential_levels and level_num in LEVEL_DEFS:
             defn = LEVEL_DEFS[level_num]
-            for ball_def in defn:
+            for ball_idx, ball_def in enumerate(defn):
                 ball_lvl = ball_def["lvl"]
                 if ball_lvl < 1 or ball_lvl > MAX_BALL_LEVEL:
                     continue
@@ -237,7 +243,8 @@ class BubbleTroubleEngine:
                 self._add_ball(ball_lvl, x, y, go_right=go_right,
                                bounciness=bounciness, flags=flags,
                                color=color,
-                               inherit_bounciness=inherit_bounce)
+                               inherit_bounciness=inherit_bounce,
+                               section=ball_idx)
         else:
             self._load_random_level()
 
@@ -246,6 +253,7 @@ class BubbleTroubleEngine:
         self.n_obstacles = 0
         self.obs_timer[:] = 0.0
         self.obs_extra[:] = 0.0
+        self.obs_section[:] = -1
         if level_num not in OBSTACLE_DEFS:
             return
         defs = OBSTACLE_DEFS[level_num]
@@ -263,10 +271,14 @@ class BubbleTroubleEngine:
             if otype == OBSTACLE_OPENING:
                 # obs_timer = trigger section left boundary in pixels (>= 0 = closed)
                 # obs_extra = slide direction: -1 = slide up, +1 = slide down
+                # obs_section = ancestry trigger ID (>= 0 means open when all balls with
+                #               ball_section==obs_section are destroyed; -1 = position-based)
                 trigger_left_ratio = obs_def[5] if len(obs_def) > 5 else 0.0
                 slide_dir = float(obs_def[6]) if len(obs_def) > 6 else -1.0
+                section_trigger = int(obs_def[7]) if len(obs_def) > 7 else -1
                 self.obs_timer[i] = trigger_left_ratio * self.width
                 self.obs_extra[i] = slide_dir
+                self.obs_section[i] = section_trigger
             elif otype == OBSTACLE_LOWERING_CEIL:
                 self.obs_timer[i] = 0.0  # starts immediately
             elif otype == OBSTACLE_DOOR:
@@ -299,7 +311,7 @@ class BubbleTroubleEngine:
 
     def _add_ball(self, level, x, y, go_right=True, yspeed=0.0, bounciness=1.0,
                   flags=BALL_FLAG_NORMAL, color=None, chain_depth=0,
-                  inherit_bounciness=True):
+                  inherit_bounciness=True, section=-1):
         """Add a ball to the active arrays."""
         if self.n_balls >= MAX_BALLS:
             return
@@ -320,6 +332,7 @@ class BubbleTroubleEngine:
         self.ball_color[i] = rgb
         self.ball_chain_depth[i] = chain_depth
         self.ball_inherit_bounciness[i] = inherit_bounciness
+        self.ball_section[i] = section
         self.n_balls += 1
 
     def _finalize_info(self, info):
@@ -345,12 +358,16 @@ class BubbleTroubleEngine:
         self.steps += 1
         self.recent_pops = []
 
-        # --- Update agent ---
-        if action == ACTION_LEFT:
+        # --- Update agent (MultiDiscrete: [move, shoot]) ---
+        move_action = action[0] if hasattr(action, '__len__') else action
+        shoot_action = action[1] if hasattr(action, '__len__') and len(action) > 1 else SHOOT_NO
+
+        if move_action == MOVE_LEFT:
             self.agent_x = max(0.0, self.agent_x - self.agent_speed)
-        elif action == ACTION_RIGHT:
+        elif move_action == MOVE_RIGHT:
             self.agent_x = min(self.width - self.agent_w, self.agent_x + self.agent_speed)
-        elif action == ACTION_SHOOT:
+
+        if shoot_action == SHOOT_YES:
             self._try_fire_laser()
 
         # --- Agent-obstacle collision (push back) ---
@@ -358,13 +375,6 @@ class BubbleTroubleEngine:
 
         # --- Update lasers (returns wasted shot penalty) ---
         reward += self._update_lasers()
-
-        # --- Update hourglass timer ---
-        if self.hourglass_active:
-            self.hourglass_timer -= self.dt
-            if self.hourglass_timer <= 0:
-                self.hourglass_active = False
-                self.hourglass_timer = 0.0
 
         # --- Update dynamic obstacles (opening walls, lowering ceiling) ---
         self._update_dynamic_obstacles()
@@ -381,12 +391,11 @@ class BubbleTroubleEngine:
         # --- Update balls (vectorized) ---
         n = self.n_balls
         if n > 0:
-            speed_factor = HOURGLASS_SPEED_FACTOR if self.hourglass_active else 1.0
             dt = self.dt
 
             # Horizontal movement (static balls don't move horizontally)
             moving_mask = self.ball_flags[:n] != BALL_FLAG_STATIC
-            self.ball_x[:n][moving_mask] += self.ball_xspeed[:n][moving_mask] * dt * speed_factor
+            self.ball_x[:n][moving_mask] += self.ball_xspeed[:n][moving_mask] * dt
 
             # Wall bounce (left)
             left_mask = self.ball_x[:n] < 0
@@ -401,8 +410,8 @@ class BubbleTroubleEngine:
             self.ball_x[:n][right_mask] -= overshoot
 
             # Vertical movement (kinematic: y += vy*dt + 0.5*a*dt^2)
-            self.ball_y[:n] += (self.ball_yspeed[:n] * dt * speed_factor
-                                + 0.5 * self.ball_yacc[:n] * (dt * speed_factor) ** 2)
+            self.ball_y[:n] += (self.ball_yspeed[:n] * dt
+                                + 0.5 * self.ball_yacc[:n] * dt ** 2)
 
             # Floor bounce — bottom edge is ball_y + 2*radius
             # Uses effective_height for short map levels
@@ -416,7 +425,7 @@ class BubbleTroubleEngine:
             self.ball_chain_depth[:n][floor_mask] = 0  # reset chain on floor contact
 
             # Update vertical speed (gravity)
-            self.ball_yspeed[:n] += self.ball_yacc[:n] * dt * speed_factor
+            self.ball_yspeed[:n] += self.ball_yacc[:n] * dt
             # Safety clamp — allows chain pop speeds up to 4× normal bounce speed
             max_speed = self.ball_max_yspeed[:n] * 4.0
             self.ball_yspeed[:n] = np.clip(self.ball_yspeed[:n], -max_speed, max_speed)
@@ -449,13 +458,10 @@ class BubbleTroubleEngine:
 
         # --- Check agent-ball collisions ---
         if self._check_agent_ball_collision():
-            if self.has_force_field:
-                self.has_force_field = False
-            else:
-                reward += REWARDS_GAME_OVER
-                terminated = True
-                self.done = True
-                return reward, terminated, truncated, self._finalize_info(info)
+            reward += REWARDS_GAME_OVER
+            terminated = True
+            self.done = True
+            return reward, terminated, truncated, self._finalize_info(info)
 
         # --- Check power-up pickup ---
         if self.powerup_on_ground and self.enable_powerups:
@@ -483,6 +489,9 @@ class BubbleTroubleEngine:
                 # Reset lasers and power-ups for new level
                 self.laser_active[:] = False
                 self.laser_length[:] = 0.0
+                self.laser_stuck[:] = False
+                self.laser_stuck_timer[:] = 0.0
+                self.laser_is_grid[:] = False
                 self.laser_max_length[:] = self.effective_height
                 self.powerup_on_ground = False
                 self.powerup_falling = False
@@ -500,6 +509,7 @@ class BubbleTroubleEngine:
         reward += REWARDS_TIME_PENALTY
 
         if self.steps >= self.max_steps:
+            reward += REWARDS_TIMEOUT
             truncated = True
             self.done = True
 
@@ -549,15 +559,18 @@ class BubbleTroubleEngine:
                 # obs_timer >= 0 means closed (value = trigger side), < 0 means open.
                 if self.obs_timer[i] >= 0:
                     trigger_side = int(self.obs_timer[i])  # 0=left, 1=right
-                    wall_center_x = self.obs_x[i] + self.obs_w[i] / 2.0
+                    wall_left_x = self.obs_x[i]
+                    wall_right_x = self.obs_x[i] + self.obs_w[i]
                     should_open = True
                     if n > 0:
                         ball_cx = self.ball_x[:n] + self.ball_radius[:n]
                         if trigger_side == DOOR_TRIGGER_LEFT:
-                            if np.any(ball_cx < wall_center_x):
+                            # Open when no balls remain strictly left of the wall's left edge
+                            if np.any(ball_cx < wall_left_x):
                                 should_open = False
                         else:  # DOOR_TRIGGER_RIGHT
-                            if np.any(ball_cx > wall_center_x):
+                            # Open when no balls remain strictly right of the wall's right edge
+                            if np.any(ball_cx > wall_right_x):
                                 should_open = False
                     if should_open:
                         self.obs_timer[i] = -1.0  # mark as open
@@ -567,16 +580,24 @@ class BubbleTroubleEngine:
                 # Opening walls: trigger-based.
                 # obs_timer >= 0: closed; value = left boundary (px) of trigger section.
                 # obs_timer < 0: animating — each half slides out in obs_extra direction.
+                # obs_section >= 0: ancestry trigger — open when all balls with that section ID are gone.
+                # obs_section < 0: position trigger — open when trigger section is empty.
                 if self.obs_timer[i] >= 0:
-                    # Check if the trigger section is empty of balls
-                    trigger_left = self.obs_timer[i]         # pixels
-                    trigger_right = self.obs_x[i]            # left edge of this obstacle
                     should_open = True
                     if n > 0:
-                        ball_cx = self.ball_x[:n] + self.ball_radius[:n]
-                        in_section = (ball_cx >= trigger_left) & (ball_cx < trigger_right)
-                        if np.any(in_section):
-                            should_open = False
+                        section_id = self.obs_section[i]
+                        if section_id >= 0:
+                            # Ancestry-based: open when no balls with this section remain anywhere
+                            if np.any(self.ball_section[:n] == section_id):
+                                should_open = False
+                        else:
+                            # Position-based: open when trigger section is empty
+                            trigger_left = self.obs_timer[i]               # pixels
+                            trigger_right = self.obs_x[i] + self.obs_w[i]  # right edge of this obstacle
+                            ball_cx = self.ball_x[:n] + self.ball_radius[:n]
+                            in_section = (ball_cx >= trigger_left) & (ball_cx < trigger_right)
+                            if np.any(in_section):
+                                should_open = False
                     if should_open:
                         self.obs_timer[i] = -1.0  # start sliding
                 else:
@@ -613,6 +634,7 @@ class BubbleTroubleEngine:
             self.obs_type[idx] = self.obs_type[last]
             self.obs_timer[idx] = self.obs_timer[last]
             self.obs_extra[idx] = self.obs_extra[last]
+            self.obs_section[idx] = self.obs_section[last]
         self.n_obstacles -= 1
 
     def _try_fire_laser(self):
@@ -624,6 +646,10 @@ class BubbleTroubleEngine:
                 self.laser_x[i] = agent_center_x
                 self.laser_length[i] = self.agent_h  # Start from agent top
                 self.laser_hit_ball[i] = False
+                # Consume grid power-up on fire
+                self.laser_is_grid[i] = self.has_laser_grid
+                if self.has_laser_grid:
+                    self.has_laser_grid = False
                 # Compute max reachable length (check obstacles above fire point)
                 max_len = float(self.effective_height)
                 for oi in range(self.n_obstacles):
@@ -643,15 +669,31 @@ class BubbleTroubleEngine:
         penalty = 0.0
         for i in range(self.max_lasers):
             if self.laser_active[i]:
+                if self.laser_stuck[i]:
+                    # Tick down the stuck timer; expire when it hits zero
+                    self.laser_stuck_timer[i] -= self.dt
+                    if self.laser_stuck_timer[i] <= 0:
+                        self.laser_active[i] = False
+                        self.laser_length[i] = 0.0
+                        self.laser_stuck[i] = False
+                        self.laser_stuck_timer[i] = 0.0
+                        self.laser_is_grid[i] = False
+                    continue
                 max_len = self.laser_max_length[i]
                 self.laser_length[i] = min(self.laser_length[i] + self.laser_speed, max_len)
                 if self.laser_length[i] >= max_len:
-                    self.laser_active[i] = False
-                    self.laser_length[i] = 0.0
-                    if not self.laser_hit_ball[i]:
-                        penalty += REWARDS_WASTED_SHOT
-                        self.shots_wasted += 1
-                    self.laser_hit_ball[i] = False
+                    if self.laser_is_grid[i] and not self.laser_hit_ball[i]:
+                        # Stick the laser at the ceiling for LASER_GRID_STICK_SECONDS
+                        self.laser_stuck[i] = True
+                        self.laser_stuck_timer[i] = LASER_GRID_STICK_SECONDS
+                    else:
+                        self.laser_active[i] = False
+                        self.laser_length[i] = 0.0
+                        self.laser_is_grid[i] = False
+                        if not self.laser_hit_ball[i]:
+                            penalty += REWARDS_WASTED_SHOT
+                            self.shots_wasted += 1
+                        self.laser_hit_ball[i] = False
         return penalty
 
     def _check_laser_ball_collisions(self):
@@ -697,13 +739,17 @@ class BubbleTroubleEngine:
             parent_color         = tuple(self.ball_color[hit_idx])
             parent_chain_depth   = int(self.ball_chain_depth[hit_idx])
             parent_inherit_bounce = bool(self.ball_inherit_bounciness[hit_idx])
+            parent_section       = int(self.ball_section[hit_idx])
 
             # Mark laser as having hit a ball
             self.laser_hit_ball[laser_idx] = True
 
-            # Deactivate laser
+            # Deactivate laser (clear grid flags)
             self.laser_active[laser_idx] = False
             self.laser_length[laser_idx] = 0.0
+            self.laser_stuck[laser_idx] = False
+            self.laser_stuck_timer[laser_idx] = 0.0
+            self.laser_is_grid[laser_idx] = False
 
             if lvl == 1:
                 # Smallest ball — just remove
@@ -734,13 +780,23 @@ class BubbleTroubleEngine:
                 impulse = -(self.pop_base_impulse * chain_factor
                             / (child_level ** self.pop_mass_exponent))
                 child_yspeed = self.pop_velocity_inherit * parent_yspeed + impulse
-                child_bounciness = parent_bounciness if parent_inherit_bounce else 1.0
+                if parent_inherit_bounce:
+                    # Scale bounciness to preserve absolute bounce height across levels.
+                    # actual_height = natural_bh * bounciness, so:
+                    # child_bounciness = parent_bounciness * (parent_natural_bh / child_natural_bh)
+                    parent_natural_bh = BALL_LEVELS[lvl]["bh_num"] / BALL_LEVELS[lvl]["bh_den"]
+                    child_natural_bh  = BALL_LEVELS[child_level]["bh_num"] / BALL_LEVELS[child_level]["bh_den"]
+                    child_bounciness = parent_bounciness * (parent_natural_bh / child_natural_bh)
+                else:
+                    child_bounciness = 1.0
                 self._add_ball(child_level, bx, by, go_right=False,
                                yspeed=child_yspeed, bounciness=child_bounciness,
-                               color=parent_color, chain_depth=child_chain_depth)
+                               color=parent_color, chain_depth=child_chain_depth,
+                               section=parent_section)
                 self._add_ball(child_level, bx, by, go_right=True,
                                yspeed=child_yspeed, bounciness=child_bounciness,
-                               color=parent_color, chain_depth=child_chain_depth)
+                               color=parent_color, chain_depth=child_chain_depth,
+                               section=parent_section)
 
             # Update n since we modified ball arrays
             n = self.n_balls
@@ -785,6 +841,7 @@ class BubbleTroubleEngine:
             self.ball_color[idx] = self.ball_color[last]
             self.ball_chain_depth[idx] = self.ball_chain_depth[last]
             self.ball_inherit_bounciness[idx] = self.ball_inherit_bounciness[last]
+            self.ball_section[idx] = self.ball_section[last]
         self.n_balls -= 1
 
     def _maybe_drop_powerup(self, x, y):
@@ -795,7 +852,7 @@ class BubbleTroubleEngine:
             self.powerup_falling = True
             self.powerup_ground_x = x
             self.powerup_ground_y = y
-            self.powerup_ground_type = self.rng.integers(1, 4)  # 1, 2, or 3
+            self.powerup_ground_type = self.rng.integers(2, 4)  # 2=laser_grid, 3=hourglass
 
     def _check_powerup_pickup(self):
         """Check if agent overlaps with ground power-up. Returns True if picked up."""
@@ -818,14 +875,10 @@ class BubbleTroubleEngine:
 
     def _apply_powerup(self, ptype):
         """Apply a power-up effect."""
-        if ptype == POWERUP_DOUBLE_HARPOON:
-            self.has_double_harpoon = True
-            self.max_lasers = 2
-        elif ptype == POWERUP_FORCE_FIELD:
-            self.has_force_field = True
+        if ptype == POWERUP_LASER_GRID:
+            self.has_laser_grid = True
         elif ptype == POWERUP_HOURGLASS:
-            self.hourglass_active = True
-            self.hourglass_timer = HOURGLASS_DURATION_SECONDS
+            self.max_steps += int(HOURGLASS_ADD_SECONDS * self.fps)
 
     def _check_lowering_ceiling_crush(self):
         """Check if the lowering ceiling has reached the agent. Returns True if crushed."""
@@ -997,10 +1050,9 @@ class BubbleTroubleEngine:
             "width": self.width,
             "height": self.height,
             "effective_height": self.effective_height,
-            "has_double_harpoon": self.has_double_harpoon,
-            "has_force_field": self.has_force_field,
-            "hourglass_active": self.hourglass_active,
-            "hourglass_timer": self.hourglass_timer,
+            "has_laser_grid": self.has_laser_grid,
+            "laser_stuck": self.laser_stuck[:self.max_lasers].copy(),
+            "laser_stuck_timer": self.laser_stuck_timer[:self.max_lasers].copy(),
             "powerup_on_ground": self.powerup_on_ground or self.powerup_falling,
             "powerup_ground_x": self.powerup_ground_x,
             "powerup_ground_y": self.powerup_ground_y,

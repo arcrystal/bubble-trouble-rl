@@ -3,11 +3,11 @@
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
-from engine import BubbleTroubleEngine
+from engine import BubbleTroubleEngine, SHOOT_YES
 from config import (
     DEFAULT_WIDTH, DEFAULT_HEIGHT, DEFAULT_FPS,
     MAX_OBS_BALLS, OBS_SIZE, MAX_BALLS, MAX_OBSTACLES, DEFAULT_MAX_STEPS,
-    NUM_LEVELS, HOURGLASS_DURATION_SECONDS,
+    NUM_LEVELS, MAX_BALL_LEVEL,
     OBSTACLE_DOOR, OBSTACLE_OPENING, OBSTACLE_LOWERING_CEIL, MAX_OBSTACLE_TYPE,
 )
 
@@ -15,8 +15,8 @@ from config import (
 class BubbleTroubleEnv(gym.Env):
     """Bubble Trouble as a Gymnasium environment.
 
-    Observation: 158-element float32 vector (see config.py for layout).
-    Actions: 0=LEFT, 1=RIGHT, 2=SHOOT, 3=STILL.
+    Observation: 174-element float32 vector (see config.py for layout).
+    Actions: MultiDiscrete([3, 2]) — move (LEFT/RIGHT/STILL) × shoot (SHOOT/NO_SHOOT).
     """
 
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": DEFAULT_FPS}
@@ -37,7 +37,8 @@ class BubbleTroubleEnv(gym.Env):
             start_level=start_level, max_level=max_level,
         )
 
-        self.action_space = spaces.Discrete(4)
+        # MultiDiscrete: [move(3), shoot(2)] — allows simultaneous move + shoot
+        self.action_space = spaces.MultiDiscrete([3, 2])
         self.observation_space = spaces.Box(
             low=-1.0, high=1.0, shape=(OBS_SIZE,), dtype=np.float32
         )
@@ -60,8 +61,20 @@ class BubbleTroubleEnv(gym.Env):
         info.update(engine_info)
         return obs, reward, terminated, truncated, info
 
+    def action_masks(self):
+        """Return valid action masks for MaskablePPO.
+
+        For MultiDiscrete([3, 2]), returns a flat bool array of shape (5,):
+        [LEFT, RIGHT, STILL, SHOOT, NO_SHOOT]
+        - move (0-2): always all valid
+        - shoot (3-4): SHOOT masked if no laser slot available
+        """
+        e = self.engine
+        can_fire = any(not e.laser_active[i] for i in range(e.max_lasers))
+        return np.array([True, True, True, can_fire, True])
+
     def _get_obs(self):
-        """Build the 158-element observation vector."""
+        """Build the 174-element observation vector."""
         obs = np.zeros(OBS_SIZE, dtype=np.float32)
         e = self.engine
         n = e.n_balls
@@ -79,7 +92,7 @@ class BubbleTroubleEnv(gym.Env):
             k = min(n, MAX_OBS_BALLS)
             idx = sorted_idx[:k]
 
-            # Normalized ball features
+            # Normalized ball features (7 per ball)
             base = 0
             obs[base:base + k] = (e.ball_x[idx] + e.ball_radius[idx]) / width * 2 - 1  # x: [-1, 1]
             base = MAX_OBS_BALLS
@@ -92,10 +105,12 @@ class BubbleTroubleEnv(gym.Env):
             base = MAX_OBS_BALLS * 4
             obs[base:base + k] = e.ball_radius[idx] / e.max_possible_radius * 2 - 1  # radius: [-1, 1]
             base = MAX_OBS_BALLS * 5
+            obs[base:base + k] = e.ball_level[idx] / MAX_BALL_LEVEL * 2 - 1  # level: [-1, 1]
+            base = MAX_OBS_BALLS * 6
             obs[base:base + k] = 1.0  # is_active flag
 
         # --- Agent features (5) ---
-        agent_base = MAX_OBS_BALLS * 6
+        agent_base = MAX_OBS_BALLS * 7
         obs[agent_base] = agent_cx / width * 2 - 1  # agent x: [-1, 1]
 
         any_laser_active = np.any(e.laser_active[:e.max_lasers])
@@ -124,21 +139,23 @@ class BubbleTroubleEnv(gym.Env):
         obs[global_base] = n / MAX_BALLS * 2 - 1  # ball count ratio: [-1, 1]
         remaining = max(0, e.max_steps - e.steps)
         obs[global_base + 1] = remaining / e.max_steps * 2 - 1  # time remaining: [-1, 1]
-        obs[global_base + 2] = e.current_level / NUM_LEVELS * 2 - 1  # current level: auto-scales with 22
+        obs[global_base + 2] = e.current_level / NUM_LEVELS * 2 - 1  # current level: auto-scales with NUM_LEVELS
 
         # --- Power-up features (6) ---
+        # Layout: has_laser_grid, laser_stuck, powerup_visible,
+        #         powerup_dist, hourglass_time_added, (reserved)
         pu_base = global_base + 3
-        obs[pu_base] = 1.0 if e.has_double_harpoon else -1.0
-        obs[pu_base + 1] = 1.0 if e.has_force_field else -1.0
-        obs[pu_base + 2] = 1.0 if e.hourglass_active else -1.0
-        obs[pu_base + 3] = (e.hourglass_timer / HOURGLASS_DURATION_SECONDS * 2 - 1) if e.hourglass_active else -1.0
+        obs[pu_base] = 1.0 if e.has_laser_grid else -1.0
+        obs[pu_base + 1] = 1.0 if np.any(e.laser_stuck[:e.max_lasers]) else -1.0
         powerup_visible = e.powerup_on_ground or e.powerup_falling
-        obs[pu_base + 4] = 1.0 if powerup_visible else -1.0
+        obs[pu_base + 2] = 1.0 if powerup_visible else -1.0
         if powerup_visible:
             dist = (e.powerup_ground_x - agent_cx) / width * 2  # signed distance
-            obs[pu_base + 5] = np.clip(dist, -1.0, 1.0)
+            obs[pu_base + 3] = np.clip(dist, -1.0, 1.0)
         else:
-            obs[pu_base + 5] = 0.0
+            obs[pu_base + 3] = 0.0
+        obs[pu_base + 4] = 0.0  # reserved
+        obs[pu_base + 5] = 0.0  # reserved
 
         # --- Obstacle features (MAX_OBSTACLES * 6 = 48) ---
         # Per obstacle: center_x, center_y, width, height, type, is_passable

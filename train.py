@@ -1,16 +1,23 @@
-"""Training script for Bubble Trouble RL using Stable-Baselines3 PPO."""
+"""Training script for Bubble Trouble RL using sb3-contrib MaskablePPO."""
 
 import argparse
 import os
 import torch
-from stable_baselines3 import PPO
-from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv
+import numpy as np
+from sb3_contrib import MaskablePPO
+from sb3_contrib.common.wrappers import ActionMasker
+from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv, VecNormalize, VecFrameStack
 from stable_baselines3.common.callbacks import (
     EvalCallback, CheckpointCallback, CallbackList, BaseCallback
 )
 from stable_baselines3.common.monitor import Monitor
 from bubble_env import BubbleTroubleEnv
 from config import TRAINING, CURRICULUM, NUM_LEVELS
+
+
+def mask_fn(env):
+    """Extract action masks from the environment for MaskablePPO."""
+    return env.action_masks()
 
 
 def make_env(rank, enable_powerups=False, max_level=2, sequential=True, seed=None):
@@ -21,10 +28,19 @@ def make_env(rank, enable_powerups=False, max_level=2, sequential=True, seed=Non
             max_level=max_level,
             sequential_levels=sequential,
         )
+        env = ActionMasker(env, mask_fn)
         env = Monitor(env)
         env.reset(seed=(seed + rank) if seed is not None else None)
         return env
     return _init
+
+
+def linear_schedule(start, end, total_timesteps):
+    """Return a function that linearly interpolates from start to end."""
+    def schedule(progress_remaining):
+        # progress_remaining goes from 1.0 → 0.0
+        return end + (start - end) * progress_remaining
+    return schedule
 
 
 class CurriculumCallback(BaseCallback):
@@ -51,7 +67,11 @@ class CurriculumCallback(BaseCallback):
                       f"powerups={'ON' if powerups else 'OFF'} at step {timestep}")
 
             # Update all sub-environments
+            # With VecNormalize + VecFrameStack wrapping, we need to get to the base env
             env = self.training_env
+            # Unwrap to find the env that has env_method
+            while hasattr(env, 'venv'):
+                env = env.venv
             if hasattr(env, 'env_method'):
                 env.env_method(
                     'set_curriculum',
@@ -87,7 +107,7 @@ class MetricsCallback(BaseCallback):
 
 
 def train(args):
-    """Run PPO training."""
+    """Run MaskablePPO training."""
     os.makedirs(args.log_dir, exist_ok=True)
     os.makedirs(args.checkpoint_dir, exist_ok=True)
 
@@ -98,9 +118,6 @@ def train(args):
     _, min_lvl, max_lvl, powerups = CURRICULUM[phase_idx]
 
     # Create vectorized environments
-    # SubprocVecEnv gives true parallelism (28k vs 16k raw steps/sec).
-    # The real bottleneck is PPO gradient updates, not env stepping.
-    # We use large batch_size + fewer epochs to minimize gradient time.
     n_envs = args.n_envs or TRAINING["n_envs"]
     if n_envs > 1:
         env = SubprocVecEnv([
@@ -112,15 +129,22 @@ def train(args):
             make_env(0, enable_powerups=powerups, max_level=max_lvl, seed=args.seed)
         ])
 
-    # Create eval environment
-    eval_env = DummyVecEnv([
+    # VecNormalize: normalize rewards only (obs already in [-1, 1])
+    env = VecNormalize(env, norm_obs=False, norm_reward=True, clip_reward=10.0)
+
+    # Frame stacking for temporal context (ball trajectories)
+    n_stack = TRAINING.get("n_frame_stack", 4)
+    env = VecFrameStack(env, n_stack=n_stack)
+
+    # Create eval environment (same wrappers but separate normalization stats)
+    eval_base = DummyVecEnv([
         make_env(0, enable_powerups=True, max_level=NUM_LEVELS,
                  sequential=True, seed=42)
     ])
+    eval_env = VecNormalize(eval_base, norm_obs=False, norm_reward=False)
+    eval_env = VecFrameStack(eval_env, n_stack=n_stack)
 
     # Determine device
-    # Note: SB3 warns that MPS/GPU is counterproductive for MLP policies.
-    # CPU is faster for small networks. Only use GPU for CNN policies.
     device = args.device
     if device == "auto":
         if torch.cuda.is_available():
@@ -129,22 +153,32 @@ def train(args):
             device = "cpu"
     print(f"Using device: {device}")
 
+    total_timesteps = args.timesteps or TRAINING["total_timesteps"]
+
+    # Build schedules for learning rate and entropy coefficient
+    lr_schedule = linear_schedule(
+        TRAINING["learning_rate_start"], TRAINING["learning_rate_end"], total_timesteps
+    )
+    ent_schedule = linear_schedule(
+        TRAINING["ent_coef_start"], TRAINING["ent_coef_end"], total_timesteps
+    )
+
     # Build or load model
     if args.resume:
         print(f"Resuming from {args.resume}")
-        model = PPO.load(args.resume, env=env, device=device)
+        model = MaskablePPO.load(args.resume, env=env, device=device)
     else:
-        model = PPO(
+        model = MaskablePPO(
             policy="MlpPolicy",
             env=env,
-            learning_rate=TRAINING["learning_rate"],
+            learning_rate=lr_schedule,
             n_steps=TRAINING["n_steps"],
             batch_size=TRAINING["batch_size"],
             n_epochs=TRAINING["n_epochs"],
             gamma=TRAINING["gamma"],
             gae_lambda=TRAINING["gae_lambda"],
             clip_range=TRAINING["clip_range"],
-            ent_coef=TRAINING["ent_coef"],
+            ent_coef=ent_schedule,
             vf_coef=TRAINING["vf_coef"],
             max_grad_norm=TRAINING["max_grad_norm"],
             policy_kwargs=dict(
@@ -161,7 +195,6 @@ def train(args):
         )
 
     # Callbacks
-    # eval_freq is per-env steps, so total_steps_between_evals = eval_freq * n_envs
     eval_callback = EvalCallback(
         eval_env,
         best_model_save_path=os.path.join(args.checkpoint_dir, "best"),
@@ -173,7 +206,7 @@ def train(args):
     )
 
     checkpoint_callback = CheckpointCallback(
-        save_freq=max(10_000_000 // n_envs, 1000),  # ~every 200k total steps
+        save_freq=max(10_000_000 // n_envs, 1000),  # ~every 10M total steps
         save_path=os.path.join(args.checkpoint_dir, "periodic"),
         name_prefix="ppo_bubble",
         verbose=1,
@@ -187,17 +220,25 @@ def train(args):
     ])
 
     # Train
-    total_timesteps = args.timesteps or TRAINING["total_timesteps"]
     print(f"Training for {total_timesteps:,} timesteps with {n_envs} envs")
+    print(f"  LR: {TRAINING['learning_rate_start']} → {TRAINING['learning_rate_end']}")
+    print(f"  Entropy: {TRAINING['ent_coef_start']} → {TRAINING['ent_coef_end']}")
+    print(f"  Frame stack: {n_stack}, gamma: {TRAINING['gamma']}, gae_lambda: {TRAINING['gae_lambda']}")
+    print(f"  Network: pi={TRAINING['net_arch_pi']}, vf={TRAINING['net_arch_vf']}")
     model.learn(
         total_timesteps=total_timesteps,
         callback=callbacks,
         progress_bar=True,
     )
 
-    # Save final model
+    # Save final model + VecNormalize stats
     final_path = os.path.join(args.checkpoint_dir, "final_model")
     model.save(final_path)
+    # Save normalization stats (needed for evaluation)
+    vec_norm = env
+    while not isinstance(vec_norm, VecNormalize):
+        vec_norm = vec_norm.venv
+    vec_norm.save(os.path.join(args.checkpoint_dir, "vecnormalize.pkl"))
     print(f"Final model saved to {final_path}")
 
     env.close()

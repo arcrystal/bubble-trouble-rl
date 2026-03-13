@@ -119,7 +119,7 @@ DOOR_TRIGGER_RIGHT = 1  # Opens when no balls remain to the RIGHT of the wall
 
 # Opening wall: splits apart after this many seconds, then slides away
 OPENING_WALL_DELAY_S = 5.0    # Seconds before wall starts opening
-OPENING_WALL_SPEED = 0.5      # Ratio of height per second for slide-away speed
+OPENING_WALL_SPEED = 1.5      # Ratio of height per second for slide-away speed
 
 # Lowering ceiling: descends from top, stops at target, kills balls/agent on contact
 LOWERING_CEIL_TARGET_RATIO = 0.55   # Stops at 55% of play area height from top
@@ -142,16 +142,16 @@ OBSTACLE_DEFS = {
          (0.48, 0.75, 0.04, 0.25, OBSTACLE_DOOR, DOOR_TRIGGER_LEFT)], # Door (bottom 25%) opens when left cleared
     6:  [(0.0, 0.0, 1.0, 0.02, OBSTACLE_LOWERING_CEIL)],       # Lowering ceiling bar
     7:  [(0.0, 0.0, 1.0, 0.39, OBSTACLE_STATIC)],       # short map — stone ceiling bottom at ~150px; play area 150-270px
-    8:  [# Wall 1 (x=0.34): each half slides OUT from center when left section is cleared.
-         # Tuple: (x, y, w, h, type, trigger_left_ratio, slide_dir)
-         # trigger_left_ratio: left boundary of section that must be emptied to open.
-         # slide_dir: -1 = slide up off screen, +1 = slide down off screen.
-         (0.34, 0.00, 0.04, 0.50, OBSTACLE_OPENING, 0.00, -1),   # top half → slides up
-         (0.34, 0.50, 0.04, 0.50, OBSTACLE_OPENING, 0.00, +1),   # bottom half → slides down
-         # Wall 2 (x=0.66): opens when middle section (right of wall 1) is cleared.
-         # trigger_left = right edge of wall 1 = 0.34+0.04 = 0.38
-         (0.66, 0.00, 0.04, 0.50, OBSTACLE_OPENING, 0.38, -1),   # top half → slides up
-         (0.66, 0.50, 0.04, 0.50, OBSTACLE_OPENING, 0.38, +1),   # bottom half → slides down
+    8:  [# Wall 1 (x=0.34): position-based trigger — opens when left section is cleared.
+         # Tuple: (x, y, w, h, type, trigger_left_ratio, slide_dir[, section_id])
+         # section_id (optional 8th element): if >= 0, wall opens when ALL balls with that
+         # ancestry (ball_section == section_id) are destroyed, regardless of position.
+         (0.34, 0.00, 0.04, 0.50, OBSTACLE_OPENING, 0.00, -1),      # top half → slides up
+         (0.34, 0.50, 0.04, 0.50, OBSTACLE_OPENING, 0.00, +1),      # bottom half → slides down
+         # Wall 2 (x=0.66): ancestry-based trigger — opens only when ALL descendants of ball
+         # index 1 (orange lvl4) are destroyed, wherever they are on screen. section_id=1.
+         (0.66, 0.00, 0.04, 0.50, OBSTACLE_OPENING, 0.38, -1, 1),   # top half → slides up
+         (0.66, 0.50, 0.04, 0.50, OBSTACLE_OPENING, 0.38, +1, 1),   # bottom half → slides down
     ],
     13: [(i / 6, 0.0, 0.025, 0.85) for i in range(1, 6)],      # 5 columns
     14: [(0.30, 0.0, 0.03, 0.85), (0.67, 0.0, 0.03, 0.85)],   # 2 columns
@@ -161,13 +161,12 @@ OBSTACLE_DEFS = {
 
 # Power-up types
 POWERUP_NONE = 0
-POWERUP_DOUBLE_HARPOON = 1
-POWERUP_FORCE_FIELD = 2
-POWERUP_HOURGLASS = 3
+POWERUP_LASER_GRID = 2   # Laser fires in a grid pattern (perpendicular crosshairs)
+POWERUP_HOURGLASS = 3    # Slows all balls by 50% for 5 seconds
 
-POWERUP_DROP_CHANCE = 0.15  # 15% chance per ball pop
-HOURGLASS_DURATION_SECONDS = 5.0
-HOURGLASS_SPEED_FACTOR = 0.5
+POWERUP_DROP_CHANCE = 0.15          # 15% chance per ball pop
+LASER_GRID_STICK_SECONDS = 5.0      # how long a stuck grid laser remains at the ceiling
+HOURGLASS_ADD_SECONDS = 15.0        # seconds added to level timer on pickup
 
 # Reward function
 REWARDS = {
@@ -175,23 +174,24 @@ REWARDS = {
     "time_penalty": -0.002,
 
     # Shooting
-    "wasted_shot": -0.30,            # laser reaches ceiling without hitting any ball
+    "wasted_shot": -0.5,             # laser reaches ceiling without hitting any ball
 
     # Ball interactions (level-scaled)
     "hit_ball_base": 0.6,            # per ball_level: reward = 0.6 * level
-    "pop_ball": 1.0,                 # smallest ball removed
+    "pop_ball": 2.0,                 # smallest ball removed
 
     # Danger awareness
-    "danger_split_penalty": -0.4,    # splitting a ball directly above agent when close
+    "danger_split_penalty": -0.5,    # splitting a ball directly above agent when close
 
     # Level progression
-    "finish_level": 5.0,
-    "time_bonus_scale": 3.0,         # bonus = 3.0 * (remaining_time / max_time) on level clear
+    "finish_level": 20.0,
+    "time_bonus_scale": 10.0,        # bonus = 10.0 * (remaining_time / max_time) on level clear
 
     # Terminal
-    "game_over": -5.0,
-    "pickup_powerup": 0.3,
-    "clear_all_levels": 15.0,
+    "timeout": -15.0,                # level timer runs out without clearing
+    "game_over": -30.0,              # agent hit by ball
+    "pickup_powerup": 0.5,
+    "clear_all_levels": 150.0,
 }
 
 # Time limit
@@ -200,12 +200,12 @@ DEFAULT_MAX_STEPS = int(DEFAULT_LEVEL_TIME_SECONDS * DEFAULT_FPS)
 
 # Observation space
 MAX_OBS_BALLS = 16  # Observation slots for balls
-OBS_PER_BALL = 6    # x, y, xspeed, yspeed, radius, is_active
+OBS_PER_BALL = 7    # x, y, xspeed, yspeed, radius, level, is_active
 OBS_AGENT = 5       # x, laser_active, laser_length, laser_x, can_fire
 OBS_GLOBAL = 3      # num_balls_ratio, steps_remaining_ratio, current_level
-OBS_POWERUP = 6     # has_double, has_shield, hourglass_active, hourglass_time, powerup_on_ground, powerup_dist
+OBS_POWERUP = 6     # has_laser_grid, laser_stuck, powerup_visible, powerup_dist, hourglass_time, (reserved)
 OBS_OBSTACLES = MAX_OBSTACLES * 6  # cx, cy, w, h, type, is_passable per obstacle
-OBS_SIZE = MAX_OBS_BALLS * OBS_PER_BALL + OBS_AGENT + OBS_GLOBAL + OBS_POWERUP + OBS_OBSTACLES  # 158
+OBS_SIZE = MAX_OBS_BALLS * OBS_PER_BALL + OBS_AGENT + OBS_GLOBAL + OBS_POWERUP + OBS_OBSTACLES  # 174
 
 # Level definitions — each level is a list of ball dicts.
 # Required keys: "lvl" (1-6), "x" (0-1 ratio of width), "y" (0-1 ratio of height)
@@ -276,13 +276,13 @@ LEVEL_DEFS = {
     11: [                                                                           # 2 groups of 4 at top
         # static=True → bounce vertically in place until popped; children get normal horizontal motion
         # bounce=2.09 → reach 76% of screen height; keep_bounce=True so children inherit bounciness
-        {"lvl": 2, "x": 0.05, "y": 0.24, "static": True, "bounce": 2.09, "keep_bounce": True},
-        {"lvl": 2, "x": 0.09, "y": 0.24, "static": True, "bounce": 2.09, "keep_bounce": True},
         {"lvl": 2, "x": 0.13, "y": 0.24, "static": True, "bounce": 2.09, "keep_bounce": True},
-        {"lvl": 2, "x": 0.22, "y": 0.24, "static": True, "bounce": 2.09, "keep_bounce": True},
-        {"lvl": 2, "x": 0.69, "y": 0.24, "static": True, "bounce": 2.09, "keep_bounce": True},
-        {"lvl": 2, "x": 0.74, "y": 0.24, "static": True, "bounce": 2.09, "keep_bounce": True},
-        {"lvl": 2, "x": 0.78, "y": 0.24, "static": True, "bounce": 2.09, "keep_bounce": True},
+        {"lvl": 2, "x": 0.18, "y": 0.24, "static": True, "bounce": 2.09, "keep_bounce": True},
+        {"lvl": 2, "x": 0.23, "y": 0.24, "static": True, "bounce": 2.09, "keep_bounce": True},
+        {"lvl": 2, "x": 0.28, "y": 0.24, "static": True, "bounce": 2.09, "keep_bounce": True},
+        {"lvl": 2, "x": 0.72, "y": 0.24, "static": True, "bounce": 2.09, "keep_bounce": True},
+        {"lvl": 2, "x": 0.77, "y": 0.24, "static": True, "bounce": 2.09, "keep_bounce": True},
+        {"lvl": 2, "x": 0.82, "y": 0.24, "static": True, "bounce": 2.09, "keep_bounce": True},
         {"lvl": 2, "x": 0.87, "y": 0.24, "static": True, "bounce": 2.09, "keep_bounce": True},
     ],
     12: [                                                                           # 3 green left + 3 blue right
@@ -322,35 +322,32 @@ LEVEL_BACKGROUNDS = {
 # 16 envs is optimal for 10 CPU cores (8 perf + 2 eff) — avoids context switching.
 TRAINING = {
     "n_envs": 16,              # SubprocVecEnv: 16 workers on 10 cores
-    "total_timesteps": 360_000_000,
-    "learning_rate": 3e-4,
+    "total_timesteps": 500_000_000,
+    "learning_rate_start": 3e-4,   # Linear decay: 3e-4 → 1e-5
+    "learning_rate_end": 1e-5,
     "n_steps": 2048,           # Steps per env per rollout (2048 * 16 = 32768 total per update)
     "batch_size": 4096,        # Larger minibatch for longer rollouts
     "n_epochs": 4,             # 4 epochs: fast, stable for PPO
-    "gamma": 0.995,            # Higher gamma — reward for clearing future levels matters more
-    "gae_lambda": 0.95,
+    "gamma": 0.998,            # Long horizon — agent values future level clears
+    "gae_lambda": 0.97,        # Smoother advantage estimates
     "clip_range": 0.2,
-    "ent_coef": 0.005,         # Lower entropy — less random exploration as curriculum guides difficulty
+    "ent_coef_start": 0.01,    # Linear decay: 0.01 → 0.001
+    "ent_coef_end": 0.001,
     "vf_coef": 0.5,
     "max_grad_norm": 0.5,
-    "net_arch_pi": [512, 256], # Wider first layer — 142 obs + 22 levels + obstacles need more capacity
-    "net_arch_vf": [512, 256],
+    "net_arch_pi": [512, 256, 128],  # Deeper network for complex multi-level play
+    "net_arch_vf": [512, 256, 128],
+    "n_frame_stack": 4,        # Frame stacking for temporal context
 }
 
 # Curriculum phases: (start_timestep, min_level, max_level, powerups_enabled)
-# Iterative progression through all 22 levels over 500M steps.
-# Each phase adds 2-4 levels so the agent masters each tier before moving on.
-# min_level moves up to keep training focused on the frontier, not replaying easy levels.
 CURRICULUM = [
-    (0,            1, 2,  False),   # Phase 0: Learn to shoot (lvl1-2, small balls)
-    (15_000_000,   1, 4,  False),   # Phase 1: Two-ball levels, lvl3 balls
-    (35_000_000,   2, 6,  False),   # Phase 2: First obstacles (lvl5), lvl4 balls
-    (60_000_000,   3, 8,  False),   # Phase 3: Wall dividers, multi-size levels
-    (90_000_000,   4, 9, False),   # Phase 4: Harder mixed configs
-    (120_000_000,  5, 10, True),    # Phase 5: Columns + power-ups
-    (160_000_000,  6, 11, True),    # Phase 6: Gauntlet, lane-based levels
-    (200_000_000,  7, 12, True),    # Phase 7: Chaotic multi-ball levels
-    (250_000_000,  1, 12, True),    # Phase 8: Level-5 balls, obstacle arenas
+    (0,            1, 5,  False),   # Phase 1: Start with simple levels (1-4) with no obstacles
+    (20_000_000,   6, 7,  False),   # Phase 2: First obstacles (lvl5), lvl4 balls
+    (70_000_000,   5, 8,  False),   # Phase 3: Begin with static balls, then add more complex levels with dynamic/static mix and lvl5-6 balls
+    (170_000_000,  9, 12, False),    # Phase 5: Columns + power-ups
+    (240_000_000,  6, 10, False),    # Phase 6: Gauntlet, lane-based levels
+    (340_000_000,  1, 12, False),    # Phase 8: Grok it
 ]
 
 

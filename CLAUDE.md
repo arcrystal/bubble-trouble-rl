@@ -120,11 +120,11 @@ Three collision systems:
 
 Wraps the engine as a standard Gymnasium environment.
 
-**Action space**: `Discrete(4)` — 0=LEFT, 1=RIGHT, 2=SHOOT, 3=STILL
+**Action space**: `MultiDiscrete([3, 2])` — movement (0=LEFT, 1=RIGHT, 2=STILL) × shooting (0=SHOOT, 1=NO_SHOOT). Allows simultaneous move + shoot.
 
-**Observation space**: `Box(low=-1, high=1, shape=(150,), dtype=float32)`. All features normalized to [-1, 1].
+**Observation space**: `Box(low=-1, high=1, shape=(174,), dtype=float32)`. All features normalized to [-1, 1]. With frame stacking (n=4), training sees shape `(696,)`.
 
-Layout (150 elements):
+Layout (174 elements):
 
 | Index | Count | Feature |
 |-------|-------|---------|
@@ -133,22 +133,24 @@ Layout (150 elements):
 | 32-47 | 16 | Ball x-speed |
 | 48-63 | 16 | Ball y-speed |
 | 64-79 | 16 | Ball radius |
-| 80-95 | 16 | Ball is_active flag (1.0 if ball exists, 0.0 if empty slot) |
-| 96 | 1 | Agent center x |
-| 97 | 1 | Laser active (1.0 / -1.0) |
-| 98 | 1 | Longest laser length |
-| 99 | 1 | Laser x position (where the laser is horizontally) |
-| 100 | 1 | Can-fire (1.0 if SHOOT would fire, -1.0 if all slots busy) |
-| 101 | 1 | Ball count ratio |
-| 102 | 1 | Time remaining ratio |
-| 103 | 1 | Current level (auto-scales with NUM_LEVELS=22) |
-| 104 | 1 | Has double harpoon (1.0 / -1.0) |
-| 105 | 1 | Has force field (1.0 / -1.0) |
-| 106 | 1 | Hourglass active (1.0 / -1.0) |
-| 107 | 1 | Hourglass timer |
-| 108 | 1 | Power-up visible on ground or falling (1.0 / -1.0) |
-| 109 | 1 | Signed distance to power-up |
-| 110-149 | 40 | Obstacle features: 8 slots x 5 values (center_x, center_y, width, height, type) |
+| 80-95 | 16 | Ball level (normalized by MAX_BALL_LEVEL) |
+| 96-111 | 16 | Ball is_active flag (1.0 if ball exists, 0.0 if empty slot) |
+| 112 | 1 | Agent center x |
+| 113 | 1 | Laser active (1.0 / -1.0) |
+| 114 | 1 | Longest laser length |
+| 115 | 1 | Laser x position (where the laser is horizontally) |
+| 116 | 1 | Can-fire (1.0 if SHOOT would fire, -1.0 if all slots busy) |
+| 117 | 1 | Ball count ratio |
+| 118 | 1 | Time remaining ratio |
+| 119 | 1 | Current level (auto-scales with NUM_LEVELS) |
+| 120 | 1 | Has laser grid (1.0 / -1.0) |
+| 121 | 1 | Laser stuck at ceiling (1.0 / -1.0) |
+| 122 | 1 | Power-up visible on ground or falling (1.0 / -1.0) |
+| 123 | 1 | Signed distance to power-up |
+| 124-125 | 2 | Reserved |
+| 126-173 | 48 | Obstacle features: 8 slots x 6 values (center_x, center_y, width, height, type, is_passable) |
+
+**Action masking**: `action_masks()` returns flat bool array of shape `(5,)` for `MultiDiscrete([3, 2])`: `[LEFT, RIGHT, STILL, SHOOT, NO_SHOOT]`. SHOOT is masked when no laser slot is available. Used by `MaskablePPO` from sb3-contrib.
 
 Ball slots are sorted by horizontal distance to agent center. Empty ball/obstacle slots are zero-filled.
 
@@ -156,17 +158,31 @@ Ball slots are sorted by horizontal distance to agent center. Empty ball/obstacl
 
 **`set_curriculum()`**: Called by the training callback to adjust `start_level`, `max_level`, and `enable_powerups` between episodes.
 
-### `train.py` — PPO Training
+### `train.py` — MaskablePPO Training
 
-Uses Stable-Baselines3 PPO with `SubprocVecEnv` for parallel environments. Default: 500M timesteps.
+Uses sb3-contrib `MaskablePPO` with `SubprocVecEnv` for parallel environments. Default: 500M timesteps.
+
+**Training stack** (wrapper order matters):
+1. `BubbleTroubleEnv` — base gymnasium env
+2. `ActionMasker` — wraps env to expose `action_masks()` for MaskablePPO
+3. `Monitor` — episode stats tracking
+4. `SubprocVecEnv` / `DummyVecEnv` — parallelization
+5. `VecNormalize(norm_obs=False, norm_reward=True)` — reward normalization only (obs already in [-1,1])
+6. `VecFrameStack(n_stack=4)` — temporal context for ball trajectory estimation
+
+**Schedules**: Learning rate and entropy coefficient both linearly decay over training:
+- LR: 3e-4 → 1e-5
+- Entropy: 0.01 → 0.001
 
 **Callbacks**:
-- `CurriculumCallback` — advances difficulty based on `CURRICULUM` phases in config
+- `CurriculumCallback` — advances difficulty based on `CURRICULUM` phases in config. Unwraps through VecNormalize/VecFrameStack to reach base vec env.
 - `MetricsCallback` — logs game stats to TensorBoard **only at episode boundaries** (when SB3's Monitor wrapper adds the `"episode"` key to info)
 - `EvalCallback` — periodic evaluation with deterministic policy, saves best model
 - `CheckpointCallback` — periodic model snapshots
 
 **Device**: CPU is faster than MPS/GPU for small MLP policies. Script defaults to CPU unless CUDA is available.
+
+**Saved artifacts**: `final_model.zip` (model weights) + `vecnormalize.pkl` (reward normalization stats, needed for evaluation).
 
 ### `renderer.py` — `PygameRenderer`
 

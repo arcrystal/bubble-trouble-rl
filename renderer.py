@@ -5,8 +5,9 @@ This module is only imported when render_mode is set — it is NOT needed for tr
 
 import numpy as np
 import pygame
+import math
 from config import (
-    POWERUP_DOUBLE_HARPOON, POWERUP_FORCE_FIELD, POWERUP_HOURGLASS,
+    POWERUP_LASER_GRID, POWERUP_HOURGLASS,
     DEFAULT_FPS, LEVEL_BACKGROUNDS, NUM_LEVELS,
     OBSTACLE_DOOR, OBSTACLE_LOWERING_CEIL, OBSTACLE_OPENING,
     BLACK, WHITE, RED, YELLOW, GREEN, BLUE, ORANGE, PURPLE,
@@ -22,16 +23,13 @@ DOOR_OPEN_COLOR  = (50, 45, 35)   # Dimmer shade for open door (passable by agen
 DOOR_OPEN_BORDER = (40, 35, 28)
 
 POWERUP_COLORS = {
-    POWERUP_DOUBLE_HARPOON: ORANGE,
-    POWERUP_FORCE_FIELD: CYAN,
+    POWERUP_LASER_GRID: CYAN,
     POWERUP_HOURGLASS: PURPLE,
 }
 
-POWERUP_LABELS = {
-    POWERUP_DOUBLE_HARPOON: "2x",
-    POWERUP_FORCE_FIELD: "S",
-    POWERUP_HOURGLASS: "T",
-}
+LASER_GRID_SPACING = 18   # pixels between perpendicular grid lines
+LASER_GRID_HALF_W  = 6    # half-width of the grid background and crosshairs
+LASER_GRID_BG      = (60, 60, 60, 100)  # faint grey background (alpha blended)
 
 # HUD layout
 HUD_HEIGHT = 28  # Bottom score bar height
@@ -139,13 +137,29 @@ class PygameRenderer:
                 pygame.draw.rect(surface, STONE, (ox, oy, ow, oh))
                 pygame.draw.rect(surface, DARK_GRAY, (ox, oy, ow, oh), 1)
 
-        # Draw lasers (thin gray/white line)
+        # Draw lasers
+        laser_stuck = state.get("laser_stuck", [False] * len(state["laser_active"]))
         for i in range(len(state["laser_active"])):
             if state["laser_active"][i]:
                 lx = int(state["laser_x"][i])
                 ll = state["laser_length"][i]
+                floor_y = int(eff_h)
                 top_y = int(eff_h - ll)
-                pygame.draw.line(surface, LASER_COLOR, (lx, int(eff_h)), (lx, top_y), 1)
+                if laser_stuck[i] and ll > 0:
+                    # Stuck grid laser: normal white line while travelling,
+                    # grid pattern once it reaches the ceiling
+                    grid_surf = pygame.Surface((LASER_GRID_HALF_W * 2 + 1, int(ll) + 1), pygame.SRCALPHA)
+                    grid_surf.fill((60, 60, 60, 80))
+                    # Crosshairs at regular intervals (measured from ceiling downward)
+                    for gy in range(0, int(ll), LASER_GRID_SPACING):
+                        pygame.draw.line(grid_surf, LASER_COLOR,
+                                         (0, gy), (LASER_GRID_HALF_W * 2, gy), 1)
+                    # Main vertical line through center
+                    pygame.draw.line(grid_surf, LASER_COLOR,
+                                     (LASER_GRID_HALF_W, 0), (LASER_GRID_HALF_W, int(ll)), 1)
+                    surface.blit(grid_surf, (lx - LASER_GRID_HALF_W, top_y))
+                else:
+                    pygame.draw.line(surface, LASER_COLOR, (lx, floor_y), (lx, top_y), 1)
 
         # Draw agent
         ax = state["agent_x"]
@@ -166,10 +180,6 @@ class PygameRenderer:
         else:
             pygame.draw.rect(surface, WHITE, agent_rect)
 
-        # Draw force field indicator
-        if state.get("has_force_field"):
-            pygame.draw.rect(surface, CYAN, agent_rect, 2)
-
         # Draw balls
         for i in range(state["n_balls"]):
             cx = int(state["ball_x"][i] + state["ball_radius"][i])
@@ -184,12 +194,31 @@ class PygameRenderer:
             px = int(state["powerup_ground_x"])
             py = int(state["powerup_ground_y"])
             ptype = state["powerup_ground_type"]
-            color = POWERUP_COLORS.get(ptype, WHITE)
-            pygame.draw.circle(surface, color, (px, py), 8)
-            label = POWERUP_LABELS.get(ptype, "?")
-            txt = self.font.render(label, True, BLACK)
-            txt_rect = txt.get_rect(center=(px, py))
-            surface.blit(txt, txt_rect)
+            if ptype == POWERUP_HOURGLASS:
+                # Clock: white circle face with hour and minute hands
+                r = 10
+                pygame.draw.circle(surface, WHITE, (px, py), r)
+                pygame.draw.circle(surface, BLACK, (px, py), r, 1)
+                # Minute hand (pointing up, 12 o'clock)
+                pygame.draw.line(surface, BLACK, (px, py), (px, py - r + 3), 1)
+                # Hour hand (pointing right, 3 o'clock)
+                pygame.draw.line(surface, BLACK, (px, py), (px + r - 4, py), 1)
+                # Small center dot
+                pygame.draw.circle(surface, BLACK, (px, py), 1)
+            elif ptype == POWERUP_LASER_GRID:
+                # Grid icon: small cyan rectangle with a grid pattern
+                r = 9
+                rect = pygame.Rect(px - r, py - r, r * 2, r * 2)
+                pygame.draw.rect(surface, (20, 20, 20), rect)
+                # Draw mini grid lines
+                for gx in range(px - r, px + r + 1, 6):
+                    pygame.draw.line(surface, CYAN, (gx, py - r), (gx, py + r), 1)
+                for gy in range(py - r, py + r + 1, 6):
+                    pygame.draw.line(surface, CYAN, (px - r, gy), (px + r, gy), 1)
+                pygame.draw.rect(surface, CYAN, rect, 1)
+            else:
+                color = POWERUP_COLORS.get(ptype, WHITE)
+                pygame.draw.circle(surface, color, (px, py), 8)
 
         # --- Pop effects ---
         # Add new pops from state
@@ -245,13 +274,12 @@ class PygameRenderer:
 
         # Active power-up indicators (top right of play area)
         indicators = []
-        if state.get("has_double_harpoon"):
-            indicators.append(("2x", ORANGE))
-        if state.get("has_force_field"):
-            indicators.append(("Shield", CYAN))
-        if state.get("hourglass_active"):
-            t = state.get("hourglass_timer", 0)
-            indicators.append((f"Slow {t:.1f}s", PURPLE))
+        if state.get("has_laser_grid"):
+            indicators.append(("Grid", CYAN))
+        stuck_timers = state.get("laser_stuck_timer", [])
+        for t in stuck_timers:
+            if t > 0:
+                indicators.append((f"Grid {t:.1f}s", CYAN))
 
         for i, (label, color) in enumerate(indicators):
             txt = self.font.render(label, True, color)

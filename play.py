@@ -8,6 +8,7 @@ Controls:
 """
 
 import sys
+import numpy as np
 import pygame
 from bubble_env import BubbleTroubleEnv
 from config import NUM_LEVELS
@@ -45,15 +46,19 @@ def main():
                 elif event.key == pygame.K_SPACE:
                     shoot_this_frame = True
 
-        # Movement uses held-key state; shooting requires a fresh press
-        action = 3  # STILL
+        # MultiDiscrete: [move, shoot]
+        # Move: 0=LEFT, 1=RIGHT, 2=STILL
+        # Shoot: 0=SHOOT, 1=NO_SHOOT
         keys = pygame.key.get_pressed()
         if keys[pygame.K_LEFT]:
-            action = 0  # LEFT
+            move = 0  # LEFT
         elif keys[pygame.K_RIGHT]:
-            action = 1  # RIGHT
-        if shoot_this_frame:
-            action = 2  # SHOOT
+            move = 1  # RIGHT
+        else:
+            move = 2  # STILL
+
+        shoot = 0 if shoot_this_frame else 1  # SHOOT / NO_SHOOT
+        action = np.array([move, shoot])
 
         if not running:
             break

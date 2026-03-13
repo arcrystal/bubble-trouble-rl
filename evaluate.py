@@ -3,23 +3,50 @@
 import argparse
 import time
 import numpy as np
-from stable_baselines3 import PPO
+from sb3_contrib import MaskablePPO
+from sb3_contrib.common.wrappers import ActionMasker
+from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize, VecFrameStack
+from stable_baselines3.common.monitor import Monitor
 from bubble_env import BubbleTroubleEnv
-from config import NUM_LEVELS
+from config import NUM_LEVELS, TRAINING
+
+
+def mask_fn(env):
+    """Extract action masks from the environment for MaskablePPO."""
+    return env.action_masks()
 
 
 def evaluate(args):
     """Run evaluation episodes with a trained model."""
     render_mode = None if args.no_render else "human"
 
-    env = BubbleTroubleEnv(
-        render_mode=render_mode,
-        enable_powerups=True,
-        sequential_levels=True,
-        max_level=NUM_LEVELS,
-    )
+    def make_eval_env():
+        env = BubbleTroubleEnv(
+            render_mode=render_mode,
+            enable_powerups=True,
+            sequential_levels=True,
+            max_level=NUM_LEVELS,
+        )
+        env = ActionMasker(env, mask_fn)
+        env = Monitor(env)
+        return env
 
-    model = PPO.load(args.model)
+    env = DummyVecEnv([make_eval_env])
+
+    # Load VecNormalize stats if available (reward normalization from training)
+    vec_norm_path = args.vec_normalize
+    if vec_norm_path:
+        env = VecNormalize.load(vec_norm_path, env)
+        env.training = False
+        env.norm_reward = False
+    else:
+        env = VecNormalize(env, norm_obs=False, norm_reward=False)
+
+    # Frame stacking to match training
+    n_stack = TRAINING.get("n_frame_stack", 4)
+    env = VecFrameStack(env, n_stack=n_stack)
+
+    model = MaskablePPO.load(args.model)
     print(f"Loaded model from {args.model}")
 
     total_reward = 0
@@ -29,7 +56,7 @@ def evaluate(args):
     games_cleared = 0
 
     for episode in range(args.episodes):
-        obs, info = env.reset()
+        obs = env.reset()
         episode_reward = 0
         episode_steps = 0
         ep_levels = 0
@@ -38,21 +65,22 @@ def evaluate(args):
 
         while True:
             action, _ = model.predict(obs, deterministic=args.deterministic)
-            obs, reward, terminated, truncated, info = env.step(action)
-            episode_reward += reward
+            obs, reward, done, info = env.step(action)
+            episode_reward += reward[0]
             episode_steps += 1
 
-            ep_balls_hit += info.get("balls_hit", 0)
-            ep_balls_popped += info.get("balls_popped", 0)
-            if info.get("level_cleared"):
+            info_dict = info[0]
+            ep_balls_hit += info_dict.get("balls_hit", 0)
+            ep_balls_popped += info_dict.get("balls_popped", 0)
+            if info_dict.get("level_cleared"):
                 ep_levels += 1
-            if info.get("game_cleared"):
+            if info_dict.get("game_cleared"):
                 games_cleared += 1
 
             if render_mode == "human":
                 env.render()
 
-            if terminated or truncated:
+            if done[0]:
                 break
 
         total_reward += episode_reward
@@ -60,7 +88,7 @@ def evaluate(args):
         total_balls_hit += ep_balls_hit
         total_balls_popped += ep_balls_popped
 
-        status = "CLEARED" if info.get("game_cleared") else ("DIED" if terminated else "TIMEOUT")
+        status = "CLEARED" if info_dict.get("game_cleared") else ("DIED" if not info_dict.get("TimeLimit.truncated", False) else "TIMEOUT")
         print(f"Episode {episode + 1}/{args.episodes}: "
               f"reward={episode_reward:.2f}, steps={episode_steps}, "
               f"levels={ep_levels}, balls_hit={ep_balls_hit}, "
@@ -111,6 +139,8 @@ def main():
     eval_parser.add_argument("--episodes", type=int, default=10)
     eval_parser.add_argument("--no-render", action="store_true")
     eval_parser.add_argument("--deterministic", action="store_true", default=True)
+    eval_parser.add_argument("--vec-normalize", type=str, default=None,
+                             help="Path to vecnormalize.pkl from training")
 
     # Benchmark subcommand
     bench_parser = subparsers.add_parser("benchmark", help="Benchmark env speed")
