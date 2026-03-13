@@ -311,7 +311,7 @@ class BubbleTroubleEngine:
 
     def _add_ball(self, level, x, y, go_right=True, yspeed=0.0, bounciness=1.0,
                   flags=BALL_FLAG_NORMAL, color=None, chain_depth=0,
-                  inherit_bounciness=True, section=-1):
+                  inherit_bounciness=False, section=-1):
         """Add a ball to the active arrays."""
         if self.n_balls >= MAX_BALLS:
             return
@@ -653,6 +653,10 @@ class BubbleTroubleEngine:
                 # Compute max reachable length (check obstacles above fire point)
                 max_len = float(self.effective_height)
                 for oi in range(self.n_obstacles):
+                    otype = self.obs_type[oi]
+                    # Open doors (timer < 0) and animating opening walls (timer < 0) are passable
+                    if self.obs_timer[oi] < 0 and otype in (OBSTACLE_DOOR, OBSTACLE_OPENING):
+                        continue
                     ox = self.obs_x[oi]
                     ow = self.obs_w[oi]
                     if ox <= agent_center_x <= ox + ow:
@@ -789,12 +793,16 @@ class BubbleTroubleEngine:
                     child_bounciness = parent_bounciness * (parent_natural_bh / child_natural_bh)
                 else:
                     child_bounciness = 1.0
-                self._add_ball(child_level, bx, by, go_right=False,
+                # Spawn children centred on the parent's centre
+                child_radius = self._ball_props[child_level][0]
+                child_x = (bx + b_radius) - child_radius
+                child_y = (by + b_radius) - child_radius
+                self._add_ball(child_level, child_x, child_y, go_right=False,
                                yspeed=child_yspeed, bounciness=child_bounciness,
                                color=parent_color, chain_depth=child_chain_depth,
                                section=parent_section,
                                inherit_bounciness=parent_inherit_bounce)
-                self._add_ball(child_level, bx, by, go_right=True,
+                self._add_ball(child_level, child_x, child_y, go_right=True,
                                yspeed=child_yspeed, bounciness=child_bounciness,
                                color=parent_color, chain_depth=child_chain_depth,
                                section=parent_section,
