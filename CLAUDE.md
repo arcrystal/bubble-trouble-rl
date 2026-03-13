@@ -19,24 +19,26 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
 # Play as human (arrow keys + space to shoot, R to restart, Q to quit)
-python play.py              # start from level 1
-python play.py 15           # start from level 15
+python src/play.py              # start from level 1
+python src/play.py 15           # start from level 15
 
-# Train (defaults: 500M steps, 16 parallel envs, CPU)
-python train.py
-python train.py --timesteps 1000000 --n-envs 4          # quick test
-python train.py --resume checkpoints/periodic/ppo_bubble_200000_steps  # resume
+# Train — two-phase: warmup (curriculum) → per-level (all levels in parallel)
+python src/train.py                                          # full two-phase run (100M warmup + rest per-level)
+python src/train.py --warmup-steps 150000000                 # longer warmup
+python src/train.py --warmup-only                            # curriculum only
+python src/train.py --skip-warmup --resume checkpoints/warmup_model.zip  # per-level only from checkpoint
+python src/train.py --timesteps 1000000 --n-envs 4           # quick smoke test
 
 # Evaluate trained agent
-python evaluate.py play checkpoints/best/best_model.zip         # visual
-python evaluate.py play checkpoints/best/best_model.zip --no-render  # headless stats
-python evaluate.py benchmark                                      # raw env speed
+python src/evaluate.py play checkpoints/best/best_model.zip         # visual
+python src/evaluate.py play checkpoints/best/best_model.zip --no-render  # headless stats
+python src/evaluate.py benchmark                                      # raw env speed
 
 # TensorBoard
 tensorboard --logdir ./logs
 
 # Quick sanity check (no test suite exists — use env checker)
-python -c "from gymnasium.utils.env_checker import check_env; from bubble_env import BubbleTroubleEnv; check_env(BubbleTroubleEnv())"
+python -c "import sys; sys.path.insert(0,'src'); from gymnasium.utils.env_checker import check_env; from bubble_env import BubbleTroubleEnv; check_env(BubbleTroubleEnv())"
 ```
 
 There is no test suite. Validation is done via `gymnasium.utils.env_checker.check_env()`, manual observation vector inspection, and training smoke tests.
@@ -45,7 +47,9 @@ There is no test suite. Validation is done via `gymnasium.utils.env_checker.chec
 
 Two-layer design: **headless numpy engine** + **gymnasium wrapper**. Rendering is fully decoupled — training never imports pygame.
 
-### `config.py` — Single source of truth
+All source files live in `src/`. Run scripts as `python src/X.py` from the project root — Python automatically adds `src/` to `sys.path`.
+
+### `src/config.py` — Single source of truth
 
 All constants live here: display dimensions, ball physics tables, reward values, observation layout, level definitions, obstacle definitions, training hyperparameters, curriculum phases, background colors. Nothing is hardcoded elsewhere.
 
@@ -68,7 +72,7 @@ Key sections:
 - `LEVEL_BACKGROUNDS` — per-level RGB background colors for renderer
 - `compute_ball_properties(level, width, height)` — derives radius, max_yspeed, yacc from kinematic equations
 
-### `engine.py` — `BubbleTroubleEngine`
+### `src/engine.py` — `BubbleTroubleEngine`
 
 Pure-numpy physics engine. Zero pygame dependency. All ball state lives in preallocated numpy arrays of shape `(MAX_BALLS=64,)`. Obstacle state in arrays of shape `(MAX_OBSTACLES=8,)`. Updates are vectorized where possible.
 
@@ -116,7 +120,7 @@ Three collision systems:
 3. All levels cleared → `(reward, False, True, info)`
 4. Normal/timeout → `(reward, False, truncated, info)`
 
-### `bubble_env.py` — `BubbleTroubleEnv(gymnasium.Env)`
+### `src/bubble_env.py` — `BubbleTroubleEnv(gymnasium.Env)`
 
 Wraps the engine as a standard Gymnasium environment.
 
@@ -158,9 +162,9 @@ Ball slots are sorted by horizontal distance to agent center. Empty ball/obstacl
 
 **`set_curriculum()`**: Called by the training callback to adjust `start_level`, `max_level`, and `enable_powerups` between episodes.
 
-### `train.py` — MaskablePPO Training
+### `src/train.py` — MaskablePPO Training
 
-Uses sb3-contrib `MaskablePPO` with `SubprocVecEnv` for parallel environments. Default: 500M timesteps.
+Uses sb3-contrib `MaskablePPO` with `SubprocVecEnv` for parallel environments. Default: 500M timesteps, two-phase strategy (curriculum warmup → per-level fine-tuning).
 
 **Training stack** (wrapper order matters):
 1. `BubbleTroubleEnv` — base gymnasium env
@@ -184,7 +188,7 @@ Uses sb3-contrib `MaskablePPO` with `SubprocVecEnv` for parallel environments. D
 
 **Saved artifacts**: `final_model.zip` (model weights) + `vecnormalize.pkl` (reward normalization stats, needed for evaluation).
 
-### `renderer.py` — `PygameRenderer`
+### `src/renderer.py` — `PygameRenderer`
 
 Optional pygame-ce renderer. Only imported lazily by `bubble_env.py` when `render_mode` is set. Reads the engine's `get_state()` dict and draws everything. Not used during training.
 
@@ -200,11 +204,11 @@ Visual features:
 - Star-burst pop effects on ball destruction
 - Force field cyan border on agent
 
-### `play.py` — Human Play
+### `src/play.py` — Human Play
 
 Keyboard-playable game using the engine + renderer. Arrow keys to move, space to shoot, R to restart, Q to quit. Accepts optional level number argument: `python play.py 15`.
 
-### `evaluate.py` — Evaluation & Benchmarking
+### `src/evaluate.py` — Evaluation & Benchmarking
 
 Two subcommands: `play` (load model, run episodes, print stats) and `benchmark` (random actions, measure steps/sec).
 

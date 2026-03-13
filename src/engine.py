@@ -238,7 +238,7 @@ class BubbleTroubleEngine:
                 go_right        = ball_def.get("dir", "R") == "R"
                 flags           = BALL_FLAG_STATIC if ball_def.get("static", False) else BALL_FLAG_NORMAL
                 bounciness      = ball_def.get("bounce", 1.0)
-                inherit_bounce  = ball_def.get("keep_bounce", True)
+                inherit_bounce  = ball_def.get("keep_bounce", False)
                 color           = ball_def.get("color", None)  # RGB tuple or None → default
                 self._add_ball(ball_lvl, x, y, go_right=go_right,
                                bounciness=bounciness, flags=flags,
@@ -792,11 +792,13 @@ class BubbleTroubleEngine:
                 self._add_ball(child_level, bx, by, go_right=False,
                                yspeed=child_yspeed, bounciness=child_bounciness,
                                color=parent_color, chain_depth=child_chain_depth,
-                               section=parent_section)
+                               section=parent_section,
+                               inherit_bounciness=parent_inherit_bounce)
                 self._add_ball(child_level, bx, by, go_right=True,
                                yspeed=child_yspeed, bounciness=child_bounciness,
                                color=parent_color, chain_depth=child_chain_depth,
-                               section=parent_section)
+                               section=parent_section,
+                               inherit_bounciness=parent_inherit_bounce)
 
             # Update n since we modified ball arrays
             n = self.n_balls

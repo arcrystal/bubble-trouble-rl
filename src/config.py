@@ -214,7 +214,7 @@ OBS_SIZE = MAX_OBS_BALLS * OBS_PER_BALL + OBS_AGENT + OBS_GLOBAL + OBS_POWERUP +
 #   "static":      bool        (default False) — static until popped: no horizontal motion;
 #                              split children revert to normal horizontal motion (BALL_FLAG_STATIC)
 #   "bounce":      float       (default 1.0)   — bounciness multiplier
-#   "keep_bounce": bool        (default True)  — if False, children revert to bounce=1.0 on split
+#   "keep_bounce": bool        (default False) — if True, children inherit parent's bounciness on split
 #   "color":       RGB tuple   (default = BALL_COLORS_BY_LEVEL[lvl]) — visual color, inherited by children
 #                              use named constants: BLUE YELLOW GREEN ORANGE RED DARK_RED PURPLE CYAN …
 LEVEL_DEFS = {
@@ -344,10 +344,8 @@ TRAINING = {
 CURRICULUM = [
     (0,            1, 5,  False),   # Phase 1: Start with simple levels (1-4) with no obstacles
     (20_000_000,   6, 7,  False),   # Phase 2: First obstacles (lvl5), lvl4 balls
-    (70_000_000,   5, 8,  False),   # Phase 3: Begin with static balls, then add more complex levels with dynamic/static mix and lvl5-6 balls
-    (170_000_000,  9, 12, False),    # Phase 5: Columns + power-ups
-    (240_000_000,  6, 10, False),    # Phase 6: Gauntlet, lane-based levels
-    (340_000_000,  1, 12, False),    # Phase 8: Grok it
+    (60_000_000,   5, 8,  False),   # Phase 3: Begin with static balls, then add more complex levels with dynamic/static mix and lvl5-6 balls
+    (120_000_000,  9, 12, False),    # Phase 5: Columns + power-ups
 ]
 
 
