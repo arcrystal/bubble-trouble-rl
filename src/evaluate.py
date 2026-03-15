@@ -5,10 +5,10 @@ import time
 import numpy as np
 from sb3_contrib import MaskablePPO
 from sb3_contrib.common.wrappers import ActionMasker
-from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize, VecFrameStack
+from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 from stable_baselines3.common.monitor import Monitor
 from bubble_env import BubbleTroubleEnv
-from config import NUM_LEVELS, TRAINING
+from config import NUM_LEVELS
 
 
 def mask_fn(env):
@@ -41,10 +41,6 @@ def evaluate(args):
         env.norm_reward = False
     else:
         env = VecNormalize(env, norm_obs=False, norm_reward=False)
-
-    # Frame stacking to match training
-    n_stack = TRAINING.get("n_frame_stack", 4)
-    env = VecFrameStack(env, n_stack=n_stack)
 
     model = MaskablePPO.load(args.model)
     print(f"Loaded model from {args.model}")

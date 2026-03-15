@@ -6,7 +6,7 @@ import numpy as np
 from engine import BubbleTroubleEngine, SHOOT_YES
 from config import (
     DEFAULT_WIDTH, DEFAULT_HEIGHT, DEFAULT_FPS,
-    MAX_OBS_BALLS, OBS_SIZE, MAX_BALLS, MAX_OBSTACLES, DEFAULT_MAX_STEPS,
+    MAX_OBS_BALLS, OBS_PER_BALL, OBS_SIZE, MAX_BALLS, MAX_OBSTACLES, DEFAULT_MAX_STEPS,
     NUM_LEVELS, MAX_BALL_LEVEL,
     OBSTACLE_DOOR, OBSTACLE_OPENING, OBSTACLE_LOWERING_CEIL, MAX_OBSTACLE_TYPE,
 )
@@ -15,7 +15,7 @@ from config import (
 class BubbleTroubleEnv(gym.Env):
     """Bubble Trouble as a Gymnasium environment.
 
-    Observation: 174-element float32 vector (see config.py for layout).
+    Observation: 206-element float32 vector (see config.py for layout).
     Actions: MultiDiscrete([3, 2]) — move (LEFT/RIGHT/STILL) × shoot (SHOOT/NO_SHOOT).
     """
 
@@ -74,7 +74,7 @@ class BubbleTroubleEnv(gym.Env):
         return np.array([True, True, True, can_fire, True])
 
     def _get_obs(self):
-        """Build the 174-element observation vector."""
+        """Build the 206-element observation vector."""
         obs = np.zeros(OBS_SIZE, dtype=np.float32)
         e = self.engine
         n = e.n_balls
@@ -92,7 +92,7 @@ class BubbleTroubleEnv(gym.Env):
             k = min(n, MAX_OBS_BALLS)
             idx = sorted_idx[:k]
 
-            # Normalized ball features (7 per ball)
+            # Normalized ball features (9 per ball)
             base = 0
             obs[base:base + k] = (e.ball_x[idx] + e.ball_radius[idx]) / width * 2 - 1  # x: [-1, 1]
             base = MAX_OBS_BALLS
@@ -109,8 +109,24 @@ class BubbleTroubleEnv(gym.Env):
             base = MAX_OBS_BALLS * 6
             obs[base:base + k] = 1.0  # is_active flag
 
+            # Relative x: signed horizontal distance from agent to ball center
+            base = MAX_OBS_BALLS * 7
+            rel_x = (e.ball_x[idx] + e.ball_radius[idx] - agent_cx) / (width / 2)
+            obs[base:base + k] = np.clip(rel_x, -1.0, 1.0)
+
+            # Peak height: predicted apex y when ball is rising/at peak, 1.0 when falling
+            base = MAX_OBS_BALLS * 8
+            rising = e.ball_yspeed[idx] <= 0
+            ball_cy = e.ball_y[idx] + e.ball_radius[idx]
+            peak_cy = np.where(
+                rising,
+                ball_cy - e.ball_yspeed[idx] ** 2 / (2 * e.ball_yacc[idx]),
+                float(e.effective_height),  # falling → peak is "at floor"
+            )
+            obs[base:base + k] = np.clip(peak_cy / e.effective_height * 2 - 1, -1.0, 1.0)
+
         # --- Agent features (5) ---
-        agent_base = MAX_OBS_BALLS * 7
+        agent_base = MAX_OBS_BALLS * OBS_PER_BALL
         obs[agent_base] = agent_cx / width * 2 - 1  # agent x: [-1, 1]
 
         any_laser_active = np.any(e.laser_active[:e.max_lasers])

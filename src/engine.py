@@ -14,6 +14,7 @@ from config import (
     POWERUP_NONE, POWERUP_LASER_GRID, POWERUP_HOURGLASS,
     POWERUP_DROP_CHANCE, LASER_GRID_STICK_SECONDS, HOURGLASS_ADD_SECONDS,
     LEVEL_DEFS, OBSTACLE_DEFS, NUM_LEVELS, DEFAULT_MAX_STEPS, REWARDS,
+    CEILING_POP_VALUES,
     BALL_FLAG_NORMAL, BALL_FLAG_STATIC,
     OBSTACLE_STATIC, OBSTACLE_DOOR, OBSTACLE_OPENING, OBSTACLE_LOWERING_CEIL,
     DOOR_TRIGGER_LEFT, DOOR_TRIGGER_RIGHT,
@@ -36,6 +37,7 @@ REWARDS_TIMEOUT = REWARDS["timeout"]
 REWARDS_GAME_OVER = REWARDS["game_over"]
 REWARDS_PICKUP = REWARDS["pickup_powerup"]
 REWARDS_CLEAR_ALL = REWARDS["clear_all_levels"]
+REWARDS_HEIGHT_BONUS = REWARDS["height_bonus_factor"]
 
 # Movement actions (first element of MultiDiscrete)
 MOVE_LEFT = 0
@@ -165,6 +167,7 @@ class BubbleTroubleEngine:
         self.shots_fired = 0
         self.shots_wasted = 0
         self.danger_splits = 0
+        self.ceiling_pops = 0
         self.levels_cleared = 0
         self.highest_level = start_level
 
@@ -197,6 +200,7 @@ class BubbleTroubleEngine:
         self.shots_fired = 0
         self.shots_wasted = 0
         self.danger_splits = 0
+        self.ceiling_pops = 0
         self.levels_cleared = 0
         self.highest_level = self.start_level
 
@@ -339,6 +343,7 @@ class BubbleTroubleEngine:
         """Stamp episode-level cumulative counters onto the info dict."""
         info["shots_wasted"] = self.shots_wasted
         info["danger_splits"] = self.danger_splits
+        info["ceiling_pops"] = self.ceiling_pops
         info["levels_cleared"] = self.levels_cleared
         info["highest_level"] = self.highest_level
         return info
@@ -430,11 +435,18 @@ class BubbleTroubleEngine:
             max_speed = self.ball_max_yspeed[:n] * 4.0
             self.ball_yspeed[:n] = np.clip(self.ball_yspeed[:n], -max_speed, max_speed)
 
-            # Ceiling check — balls that hit ceiling are destroyed (enables ceiling pops)
+            # Ceiling check — balls that hit ceiling are destroyed (ceiling pop reward)
             ceiling_mask = self.ball_y[:n] < 0
             if np.any(ceiling_mask):
                 indices = np.where(ceiling_mask)[0]
                 for idx in sorted(indices, reverse=True):
+                    lvl = int(self.ball_level[idx])
+                    bx = float(self.ball_x[idx])
+                    by = float(self.ball_y[idx])
+                    br = float(self.ball_radius[idx])
+                    self.recent_pops.append((bx + br, by + br, br))
+                    reward += CEILING_POP_VALUES[lvl]
+                    self.ceiling_pops += 1
                     self._remove_ball(idx)
                 n = self.n_balls
 
@@ -755,13 +767,17 @@ class BubbleTroubleEngine:
             self.laser_stuck_timer[laser_idx] = 0.0
             self.laser_is_grid[laser_idx] = False
 
+            # Height bonus: hitting balls higher up gives up to 50% extra reward
+            ball_cy = by + b_radius
+            height_factor = 1.0 + REWARDS_HEIGHT_BONUS * max(0.0, 1.0 - ball_cy / self.effective_height)
+
             if lvl == 1:
                 # Smallest ball — just remove
-                reward += self._pop_ball_at(hit_idx)
+                reward += self._pop_ball_at(hit_idx) * height_factor
                 hit_info["balls_popped"] += 1
             else:
                 # Split: remove this ball, add 2 smaller ones
-                reward += self._hit_ball_at(hit_idx, lvl)
+                reward += self._hit_ball_at(hit_idx, lvl) * height_factor
                 hit_info["balls_hit"] += 1
 
                 # Danger split check: ball center close to agent horizontally

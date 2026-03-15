@@ -174,25 +174,40 @@ REWARDS = {
     "time_penalty": -0.002,
 
     # Shooting
-    "wasted_shot": -0.5,             # laser reaches ceiling without hitting any ball
+    "wasted_shot": -0.3,             # laser reaches ceiling without hitting any ball
 
     # Ball interactions (level-scaled)
-    "hit_ball_base": 0.6,            # per ball_level: reward = 0.6 * level
-    "pop_ball": 2.0,                 # smallest ball removed
+    "hit_ball_base": 0.8,            # per ball_level: reward = 0.8 * level
+    "pop_ball": 1.5,                 # smallest ball removed by laser
+    "height_bonus_factor": 0.5,      # up to 50% extra reward for hitting balls near ceiling
 
     # Danger awareness
-    "danger_split_penalty": -0.5,    # splitting a ball directly above agent when close
+    "danger_split_penalty": -0.2,    # splitting a ball directly above agent when close
 
     # Level progression
-    "finish_level": 20.0,
-    "time_bonus_scale": 10.0,        # bonus = 10.0 * (remaining_time / max_time) on level clear
+    "finish_level": 10.0,
+    "time_bonus_scale": 8.0,         # bonus = 8.0 * (remaining_time / max_time) on level clear
 
     # Terminal
-    "timeout": -15.0,                # level timer runs out without clearing
-    "game_over": -30.0,              # agent hit by ball
-    "pickup_powerup": 0.5,
-    "clear_all_levels": 150.0,
+    "timeout": -3.0,                 # level timer runs out without clearing
+    "game_over": -8.0,               # agent hit by ball
+    "pickup_powerup": 0.3,
+    "clear_all_levels": 50.0,
 }
+
+# Ceiling pop rewards — when a ball hits the ceiling (y < 0) it's destroyed outright,
+# eliminating its entire subtree. Reward = full value of manually clearing all descendants.
+# This makes ceiling pops equivalent to manual clearing but better via time/risk savings.
+def _ceiling_subtree_value(level, hit_base, pop_val):
+    if level == 1:
+        return pop_val
+    return hit_base * level + 2 * _ceiling_subtree_value(level - 1, hit_base, pop_val)
+
+CEILING_POP_VALUES = {
+    L: _ceiling_subtree_value(L, REWARDS["hit_ball_base"], REWARDS["pop_ball"])
+    for L in range(1, MAX_BALL_LEVEL + 1)
+}
+# L=1: 1.5, L=2: 4.6, L=3: 11.6, L=4: 26.4, L=5: 56.8, L=6: 118.4
 
 # Time limit
 DEFAULT_LEVEL_TIME_SECONDS = 60.0
@@ -200,12 +215,12 @@ DEFAULT_MAX_STEPS = int(DEFAULT_LEVEL_TIME_SECONDS * DEFAULT_FPS)
 
 # Observation space
 MAX_OBS_BALLS = 16  # Observation slots for balls
-OBS_PER_BALL = 7    # x, y, xspeed, yspeed, radius, level, is_active
+OBS_PER_BALL = 9    # x, y, xspeed, yspeed, radius, level, is_active, relative_x, peak_height
 OBS_AGENT = 5       # x, laser_active, laser_length, laser_x, can_fire
 OBS_GLOBAL = 3      # num_balls_ratio, steps_remaining_ratio, current_level
 OBS_POWERUP = 6     # has_laser_grid, laser_stuck, powerup_visible, powerup_dist, hourglass_time, (reserved)
 OBS_OBSTACLES = MAX_OBSTACLES * 6  # cx, cy, w, h, type, is_passable per obstacle
-OBS_SIZE = MAX_OBS_BALLS * OBS_PER_BALL + OBS_AGENT + OBS_GLOBAL + OBS_POWERUP + OBS_OBSTACLES  # 174
+OBS_SIZE = MAX_OBS_BALLS * OBS_PER_BALL + OBS_AGENT + OBS_GLOBAL + OBS_POWERUP + OBS_OBSTACLES  # 206
 
 # Level definitions — each level is a list of ball dicts.
 # Required keys: "lvl" (1-6), "x" (0-1 ratio of width), "y" (0-1 ratio of height)
@@ -321,31 +336,82 @@ LEVEL_BACKGROUNDS = {
 #   64env b4096 e4  => 23,600
 # 16 envs is optimal for 10 CPU cores (8 perf + 2 eff) — avoids context switching.
 TRAINING = {
-    "n_envs": 16,              # SubprocVecEnv: 16 workers on 10 cores
-    "total_timesteps": 500_000_000,
+    # Two-phase PPO: Phase 1 (warmup curriculum, 40%) + Phase 2 (level-distributed, 60%)
+    "n_envs": 16,              # Phase 1 envs; Phase 2 defaults to NUM_LEVELS (one per level)
+    "total_timesteps": 200_000_000,
     "learning_rate_start": 3e-4,   # Linear decay: 3e-4 → 1e-5
     "learning_rate_end": 1e-5,
-    "n_steps": 2048,           # Steps per env per rollout (2048 * 16 = 32768 total per update)
-    "batch_size": 4096,        # Larger minibatch for longer rollouts
-    "n_epochs": 4,             # 4 epochs: fast, stable for PPO
-    "gamma": 0.998,            # Long horizon — agent values future level clears
-    "gae_lambda": 0.97,        # Smoother advantage estimates
+    "n_steps": 2048,           # Steps per env per rollout
+    "batch_size": 4096,
+    "n_epochs": 4,
+    "gamma": 0.997,            # Longer horizon for ceiling pop chain credit assignment
+    "gae_lambda": 0.95,
     "clip_range": 0.2,
-    "ent_coef_start": 0.01,    # Linear decay: 0.01 → 0.001
-    "ent_coef_end": 0.001,
+    "ent_coef_start": 0.02,    # Higher entropy: explore ceiling pop setups more aggressively
+    "ent_coef_end": 0.003,
     "vf_coef": 0.5,
     "max_grad_norm": 0.5,
-    "net_arch_pi": [512, 256, 128],  # Deeper network for complex multi-level play
+    "net_arch_pi": [512, 256, 128],
     "net_arch_vf": [512, 256, 128],
-    "n_frame_stack": 4,        # Frame stacking for temporal context
 }
 
-# Curriculum phases: (start_timestep, min_level, max_level, powerups_enabled)
+# Curriculum phases for Phase 1 warmup (designed for 80M steps = 40% of 200M total)
+# Early exposure to big balls so ceiling pops are discovered during warmup.
 CURRICULUM = [
-    (0,            1, 5,  False),   # Phase 1: Start with simple levels (1-4) with no obstacles
-    (20_000_000,   6, 7,  False),   # Phase 2: First obstacles (lvl5), lvl4 balls
-    (60_000_000,   5, 8,  False),   # Phase 3: Begin with static balls, then add more complex levels with dynamic/static mix and lvl5-6 balls
-    (120_000_000,  9, 12, False),    # Phase 5: Columns + power-ups
+    (0,            1, 3,  False),   # Phase 0: Learn to shoot (8M steps)
+    (8_000_000,    1, 5,  False),   # Phase 1: Obstacle levels — door wall (12M steps)
+    (20_000_000,   3, 8,  False),   # Phase 2: Opening walls, static balls (15M steps)
+    (35_000_000,   5, 10, False),   # Phase 3: Level-6 ball — ceiling pop chains (15M steps)
+    (50_000_000,   7, 12, False),   # Phase 4: All hard levels (15M steps)
+    (65_000_000,   1, 12, True),    # Phase 5: Full game + power-ups (15M steps)
+]
+
+
+# ---------------------------------------------------------------------------
+# QR-DQN training hyperparameters
+# Algorithm: Quantile Regression DQN (sb3-contrib QRDQN)
+# Why QR-DQN over PPO:
+#   - Off-policy: each transition replayed ~1000× (300K buffer / 512 batch) vs PPO's 1×
+#   - Distributional: 200 quantiles model our bimodal reward distribution precisely
+#     (most steps: -0.002; ceiling pop chains: up to +118)
+#   - Implicit prioritization: Quantile Huber loss scales gradient with TD error magnitude
+#     → ceiling pop events automatically receive proportionally larger updates
+#   - n-step returns (n=3): better credit assignment for multi-step ball sequences
+#   - No frame stacking needed: peak_height + velocity already encode temporal context
+# Expected convergence: 30M steps ≈ 300M PPO steps due to ~10× better sample utilization
+# ---------------------------------------------------------------------------
+QRDQN_TRAINING = {
+    # Tuned for CPU throughput target ~400-600 it/s (vs 58 it/s with heavy settings).
+    # Key lever: n_quantiles=50 × gradient_steps=1 × batch=256 reduces per-step compute
+    # ~16× vs (n_quantiles=200 × gradient_steps=4 × batch=512), enabling practical runtime.
+    # n_quantiles=50 is still 50× richer than PPO's scalar value estimate.
+    "n_envs": 8,                   # 8 parallel envs; more than 8 creates IPC overhead
+    "total_timesteps": 20_000_000, # Each transition replayed ~(200K/256)×(20M/4/8) ≈ 5000× vs PPO's 4×
+    "learning_rate": 5e-5,
+    "buffer_size": 200_000,        # 200K × 206 × 4 × 2 ≈ 330MB
+    "learning_starts": 20_000,     # Warmup before first gradient update
+    "batch_size": 256,
+    "tau": 1.0,                    # Hard target update
+    "gamma": 0.995,
+    "train_freq": 4,               # 1 gradient step per 4 env steps collected
+    "gradient_steps": 1,
+    "n_steps": 3,                  # 3-step returns: better credit assignment
+    "target_update_interval": 2_500,
+    "exploration_fraction": 0.10,  # Decay eps over first 10% (1M steps)
+    "exploration_initial_eps": 0.3, # Start at 30% random — less noisy buffer fill
+    "exploration_final_eps": 0.02,
+    "max_grad_norm": 10.0,
+    "n_quantiles": 50,             # 50 quantiles: practical speed, full distributional benefit
+    "net_arch": [512, 256, 128],
+}
+
+# QR-DQN curriculum: same 6-phase structure scaled to 10M steps
+QRDQN_CURRICULUM = [
+    (0,           1, 3,  False),   # Phase 0: Learn to shoot (2M steps)
+    (2_000_000,   1, 5,  False),   # Phase 1: Door wall obstacle (4M steps)
+    (6_000_000,   3, 8,  False),   # Phase 2: Opening walls, static balls (3M steps)
+    (9_000_000,   5, 10, False),   # Phase 3: Level-6 ball — ceiling pop chains (1M steps)
+    (10_000_000,  1, 12, True),    # Phase 4: Full game + power-ups (last 2M steps, if extended)
 ]
 
 
