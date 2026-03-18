@@ -3,19 +3,20 @@
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
-from engine import BubbleTroubleEngine, SHOOT_YES
+from engine import BubbleTroubleEngine
 from config import (
     DEFAULT_WIDTH, DEFAULT_HEIGHT, DEFAULT_FPS,
     MAX_OBS_BALLS, OBS_PER_BALL, OBS_SIZE, MAX_BALLS, MAX_OBSTACLES, DEFAULT_MAX_STEPS,
     NUM_LEVELS, MAX_BALL_LEVEL,
     OBSTACLE_DOOR, OBSTACLE_OPENING, OBSTACLE_LOWERING_CEIL, MAX_OBSTACLE_TYPE,
+    POP_BASE_IMPULSE_RATIO, POP_VELOCITY_INHERIT, POP_CHAIN_GAIN, POP_MASS_EXPONENT,
 )
 
 
 class BubbleTroubleEnv(gym.Env):
     """Bubble Trouble as a Gymnasium environment.
 
-    Observation: 206-element float32 vector (see config.py for layout).
+    Observation: 224-element float32 vector (see config.py for layout).
     Actions: MultiDiscrete([3, 2]) — move (LEFT/RIGHT/STILL) × shoot (SHOOT/NO_SHOOT).
     """
 
@@ -74,7 +75,7 @@ class BubbleTroubleEnv(gym.Env):
         return np.array([True, True, True, can_fire, True])
 
     def _get_obs(self):
-        """Build the 206-element observation vector."""
+        """Build the 224-element observation vector."""
         obs = np.zeros(OBS_SIZE, dtype=np.float32)
         e = self.engine
         n = e.n_balls
@@ -125,6 +126,18 @@ class BubbleTroubleEnv(gym.Env):
             )
             obs[base:base + k] = np.clip(peak_cy / e.effective_height * 2 - 1, -1.0, 1.0)
 
+            # Intercept x: predicted ball center x when laser reaches ball's current height.
+            # The laser travels screen_height pixels per second, so it takes ball_cy/height
+            # seconds to reach a ball at height ball_cy. In that time the ball moves
+            # ball_xspeed * (ball_cy / height) pixels horizontally.
+            # Directly encodes "where to stand to intercept this ball" — a non-linear
+            # product of position, speed, and the laser speed constant that an MLP cannot
+            # easily derive from raw per-ball features without explicit knowledge of laser speed.
+            base = MAX_OBS_BALLS * 9
+            t_reach_s = ball_cy / height          # seconds for laser to reach ball's current y
+            intercept_cx = (e.ball_x[idx] + e.ball_radius[idx]) + e.ball_xspeed[idx] * t_reach_s
+            obs[base:base + k] = np.clip(intercept_cx / width * 2 - 1, -1.0, 1.0)
+
         # --- Agent features (5) ---
         agent_base = MAX_OBS_BALLS * OBS_PER_BALL
         obs[agent_base] = agent_cx / width * 2 - 1  # agent x: [-1, 1]
@@ -150,17 +163,55 @@ class BubbleTroubleEnv(gym.Env):
         can_fire = any(not e.laser_active[i] for i in range(e.max_lasers))
         obs[agent_base + 4] = 1.0 if can_fire else -1.0
 
-        # --- Global features (3) ---
+        # --- Global features (5) ---
         global_base = agent_base + 5
         obs[global_base] = n / MAX_BALLS * 2 - 1  # ball count ratio: [-1, 1]
         remaining = max(0, e.max_steps - e.steps)
         obs[global_base + 1] = remaining / e.max_steps * 2 - 1  # time remaining: [-1, 1]
         obs[global_base + 2] = e.current_level / NUM_LEVELS * 2 - 1  # current level: auto-scales with NUM_LEVELS
 
+        # Chain ceiling targeting: pre-computes "if I hit ball X now, will its children
+        # reach the ceiling?" using the full pop physics model (velocity inheritance,
+        # chain-depth impulse, level-dependent gravity, kinematic prediction).
+        # Returns the intercept_x and quality of the best chain opportunity on screen.
+        # Critical for levels 9-10 (lvl-5/6 balls) where ceiling pop chains are the
+        # only viable strategy. An MLP cannot derive this — it requires knowing
+        # POP_VELOCITY_INHERIT, POP_BASE_IMPULSE_RATIO, POP_CHAIN_GAIN, per-level yacc,
+        # and solving a kinematic equation.
+        best_chain_quality = 0.0
+        best_chain_intercept = agent_cx  # default: agent's current position
+        pop_base = POP_BASE_IMPULSE_RATIO * height
+        if n > 0:
+            for bi in range(n):
+                lvl_i = int(e.ball_level[bi])
+                if lvl_i <= 1:
+                    continue  # lvl-1 balls don't split
+                child_level = lvl_i - 1
+                child_yacc = e._ball_props[child_level][2]
+                parent_ys = float(e.ball_yspeed[bi])
+                ball_cy_i = float(e.ball_y[bi] + e.ball_radius[bi])
+                if ball_cy_i <= 0:
+                    continue  # already at ceiling
+                chain_d = int(e.ball_chain_depth[bi]) + 1
+                chain_f = (1.0 + POP_CHAIN_GAIN) ** chain_d
+                impulse = pop_base * chain_f / (child_level ** POP_MASS_EXPONENT)
+                child_ys = POP_VELOCITY_INHERIT * parent_ys - impulse  # negative = upward
+                if child_ys >= 0:
+                    continue  # children won't move upward
+                max_rise = child_ys ** 2 / (2.0 * child_yacc)
+                quality = max_rise / ball_cy_i  # > 1 = children reach ceiling
+                # Weight by ball level (higher level = more value in ceiling-popping)
+                weighted_q = quality * lvl_i / MAX_BALL_LEVEL
+                if weighted_q > best_chain_quality:
+                    best_chain_quality = weighted_q
+                    # Intercept x for this ball
+                    t_r = ball_cy_i / height
+                    best_chain_intercept = float(e.ball_x[bi] + e.ball_radius[bi]) + float(e.ball_xspeed[bi]) * t_r
+        obs[global_base + 3] = np.clip(best_chain_intercept / width * 2 - 1, -1.0, 1.0)
+        obs[global_base + 4] = np.clip(best_chain_quality / 2.0 * 2 - 1, -1.0, 1.0)  # 0→-1, 1→0, 2→+1
+
         # --- Power-up features (6) ---
-        # Layout: has_laser_grid, laser_stuck, powerup_visible,
-        #         powerup_dist, hourglass_time_added, (reserved)
-        pu_base = global_base + 3
+        pu_base = global_base + 5
         obs[pu_base] = 1.0 if e.has_laser_grid else -1.0
         obs[pu_base + 1] = 1.0 if np.any(e.laser_stuck[:e.max_lasers]) else -1.0
         powerup_visible = e.powerup_on_ground or e.powerup_falling
@@ -170,8 +221,34 @@ class BubbleTroubleEnv(gym.Env):
             obs[pu_base + 3] = np.clip(dist, -1.0, 1.0)
         else:
             obs[pu_base + 3] = 0.0
-        obs[pu_base + 4] = 0.0  # reserved
-        obs[pu_base + 5] = 0.0  # reserved
+        # n_rising_ratio: fraction of active balls currently rising (yspeed < 0).
+        # Aggregates 16 individual yspeed features into one policy-relevant scalar:
+        # high value = many balls in upward phase = wide ceiling-pop window open now.
+        if n > 0:
+            n_rising = int(np.sum(e.ball_yspeed[:n] < 0))
+            obs[pu_base + 4] = n_rising / n * 2.0 - 1.0   # [-1=all falling, +1=all rising]
+        else:
+            obs[pu_base + 4] = -1.0
+
+        # closest_approach_time: seconds until the nearest approaching ball is at agent x.
+        # For the closest ball moving toward the agent, t = |relative_x| / |xspeed|.
+        # This is a division across two feature channels — non-trivial for an MLP —
+        # and directly tells the agent how urgently it must dodge.
+        # Normalized: -1.0 = ball overhead now (0s), +1.0 = 3+ seconds away or no threat.
+        if n > 0:
+            ball_cx_all = e.ball_x[:n] + e.ball_radius[:n]
+            rel_x_all = ball_cx_all - agent_cx
+            # Approaching = ball moving toward agent (rel_x and xspeed have opposite signs)
+            approaching = (rel_x_all * e.ball_xspeed[:n]) < 0
+            if np.any(approaching):
+                ap_idx = np.where(approaching)[0]
+                times = np.abs(rel_x_all[ap_idx]) / (np.abs(e.ball_xspeed[ap_idx]) + 1e-6)
+                min_t = float(np.min(times))
+                obs[pu_base + 5] = np.clip(min_t / 3.0, 0.0, 1.0) * 2.0 - 1.0
+            else:
+                obs[pu_base + 5] = 1.0   # no balls approaching — safe
+        else:
+            obs[pu_base + 5] = 1.0
 
         # --- Obstacle features (MAX_OBSTACLES * 6 = 48) ---
         # Per obstacle: center_x, center_y, width, height, type, is_passable

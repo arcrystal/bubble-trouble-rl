@@ -1,9 +1,13 @@
-"""Evaluation script: load a trained model and watch/benchmark it play."""
+"""Evaluation script: load a trained model and watch/benchmark it play.
+
+Supports both MaskablePPO and RecurrentPPO models. The model type is
+auto-detected from the saved .zip file.
+"""
 
 import argparse
 import time
 import numpy as np
-from sb3_contrib import MaskablePPO
+from sb3_contrib import MaskablePPO, RecurrentPPO
 from sb3_contrib.common.wrappers import ActionMasker
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 from stable_baselines3.common.monitor import Monitor
@@ -16,8 +20,25 @@ def mask_fn(env):
     return env.action_masks()
 
 
+def _detect_model_class(model_path: str):
+    """Auto-detect whether a saved model is MaskablePPO or RecurrentPPO."""
+    import zipfile, json
+    zip_path = model_path if model_path.endswith(".zip") else model_path + ".zip"
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        with zf.open("data") as f:
+            data = json.loads(f.read())
+    policy = data.get("policy_class", {})
+    # SB3 serializes the class as a dict with __module__ and :serialized: keys
+    module = policy.get("__module__", "") if isinstance(policy, dict) else str(policy)
+    if "recurrent" in module.lower():
+        return RecurrentPPO
+    return MaskablePPO
+
+
 def evaluate(args):
     """Run evaluation episodes with a trained model."""
+    model_class = _detect_model_class(args.model)
+    is_recurrent = model_class is RecurrentPPO
     render_mode = None if args.no_render else "human"
 
     def make_eval_env():
@@ -27,7 +48,8 @@ def evaluate(args):
             sequential_levels=True,
             max_level=NUM_LEVELS,
         )
-        env = ActionMasker(env, mask_fn)
+        if not is_recurrent:
+            env = ActionMasker(env, mask_fn)
         env = Monitor(env)
         return env
 
@@ -42,8 +64,9 @@ def evaluate(args):
     else:
         env = VecNormalize(env, norm_obs=False, norm_reward=False)
 
-    model = MaskablePPO.load(args.model)
-    print(f"Loaded model from {args.model}")
+    model = model_class.load(args.model)
+    model_name = "RecurrentPPO" if is_recurrent else "MaskablePPO"
+    print(f"Loaded {model_name} model from {args.model}")
 
     total_reward = 0
     total_levels = 0
@@ -59,8 +82,19 @@ def evaluate(args):
         ep_balls_hit = 0
         ep_balls_popped = 0
 
+        # LSTM state (only used for RecurrentPPO)
+        lstm_states = None
+        episode_start = np.ones((1,), dtype=bool)
+
         while True:
-            action, _ = model.predict(obs, deterministic=args.deterministic)
+            if is_recurrent:
+                action, lstm_states = model.predict(
+                    obs, state=lstm_states, episode_start=episode_start,
+                    deterministic=args.deterministic)
+                episode_start = np.zeros((1,), dtype=bool)
+            else:
+                action, _ = model.predict(obs, deterministic=args.deterministic)
+
             obs, reward, done, info = env.step(action)
             episode_reward += reward[0]
             episode_steps += 1

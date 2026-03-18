@@ -32,12 +32,17 @@ REWARDS_HIT_BALL_BASE = REWARDS["hit_ball_base"]
 REWARDS_POP_BALL = REWARDS["pop_ball"]
 REWARDS_DANGER_SPLIT = REWARDS["danger_split_penalty"]
 REWARDS_FINISH_LEVEL = REWARDS["finish_level"]
+REWARDS_FINISH_LEVEL_SCALE = REWARDS["finish_level_scale"]
 REWARDS_TIME_BONUS_SCALE = REWARDS["time_bonus_scale"]
 REWARDS_TIMEOUT = REWARDS["timeout"]
 REWARDS_GAME_OVER = REWARDS["game_over"]
+REWARDS_GAME_OVER_SCALE = REWARDS["game_over_scale"]
 REWARDS_PICKUP = REWARDS["pickup_powerup"]
 REWARDS_CLEAR_ALL = REWARDS["clear_all_levels"]
 REWARDS_HEIGHT_BONUS = REWARDS["height_bonus_factor"]
+REWARDS_CLUTTER_POP = REWARDS["clutter_pop_bonus"]     # bonus per extra lvl-1 ball when popping
+REWARDS_CLUTTER_SPLIT = REWARDS["clutter_split_penalty"]  # penalty per lower-level ball when splitting lvl≥3
+REWARDS_SHOT_QUALITY = REWARDS["shot_quality_scale"]   # multiplier for height×upward-momentum shot quality
 
 # Movement actions (first element of MultiDiscrete)
 MOVE_LEFT = 0
@@ -463,14 +468,14 @@ class BubbleTroubleEngine:
 
         # --- Check lowering ceiling crushing agent ---
         if self._check_lowering_ceiling_crush():
-            reward += REWARDS_GAME_OVER
+            reward += REWARDS_GAME_OVER * (1 + self.levels_cleared * REWARDS_GAME_OVER_SCALE)
             terminated = True
             self.done = True
             return reward, terminated, truncated, self._finalize_info(info)
 
         # --- Check agent-ball collisions ---
         if self._check_agent_ball_collision():
-            reward += REWARDS_GAME_OVER
+            reward += REWARDS_GAME_OVER * (1 + self.levels_cleared * REWARDS_GAME_OVER_SCALE)
             terminated = True
             self.done = True
             return reward, terminated, truncated, self._finalize_info(info)
@@ -483,7 +488,8 @@ class BubbleTroubleEngine:
 
         # --- Check level cleared ---
         if self.n_balls == 0:
-            reward += REWARDS_FINISH_LEVEL
+            level_factor = 1 + (self.current_level - 1) * REWARDS_FINISH_LEVEL_SCALE
+            reward += REWARDS_FINISH_LEVEL * level_factor
             # Time bonus: reward faster clears
             time_bonus = REWARDS_TIME_BONUS_SCALE * (1.0 - self.steps / self.max_steps)
             reward += time_bonus
@@ -751,6 +757,7 @@ class BubbleTroubleEngine:
             by = self.ball_y[hit_idx]
             b_radius = float(self.ball_radius[hit_idx])
             parent_yspeed        = float(self.ball_yspeed[hit_idx])       # capture before swap-with-last
+            parent_max_yspeed    = float(self.ball_max_yspeed[hit_idx])  # for shot quality calc
             parent_bounciness    = float(self.ball_bounciness[hit_idx])
             parent_color         = tuple(self.ball_color[hit_idx])
             parent_chain_depth   = int(self.ball_chain_depth[hit_idx])
@@ -771,13 +778,39 @@ class BubbleTroubleEngine:
             ball_cy = by + b_radius
             height_factor = 1.0 + REWARDS_HEIGHT_BONUS * max(0.0, 1.0 - ball_cy / self.effective_height)
 
+            # Shot quality bonus: rewards hitting balls that are rising fast (upward momentum).
+            # Children inherit parent_yspeed * POP_VELOCITY_INHERIT — a fast-rising parent
+            # produces faster children with greater ceiling-pop potential. The bonus peaks when
+            # the ball is moving upward at full speed (upward_factor = 1.0) and is zero at the
+            # apex (yspeed≈0) or when falling. Multiplied by height_factor so the ideal shot
+            # (high + fast-rising) gets the full combined signal.
+            # Static balls (yspeed=0 always) get upward_factor=0 — no misleading bonus.
+            if parent_yspeed < 0 and parent_max_yspeed > 0:
+                upward_factor = min(1.0, -parent_yspeed / parent_max_yspeed)
+            else:
+                upward_factor = 0.0
+            shot_quality_bonus = REWARDS_SHOT_QUALITY * upward_factor * height_factor
+
             if lvl == 1:
                 # Smallest ball — just remove
-                reward += self._pop_ball_at(hit_idx) * height_factor
+                base_reward = self._pop_ball_at(hit_idx) * height_factor
+                # Clutter bonus: each lvl-1 ball beyond 2 on screen adds extra value
+                # to clearing this one — incentivises decluttering crowded levels.
+                n_level1 = int(np.sum(self.ball_level[:n] == 1))
+                clutter_bonus = REWARDS_CLUTTER_POP * max(0, n_level1 - 2) * height_factor
+                reward += base_reward + clutter_bonus + shot_quality_bonus
                 hit_info["balls_popped"] += 1
             else:
                 # Split: remove this ball, add 2 smaller ones
-                reward += self._hit_ball_at(hit_idx, lvl) * height_factor
+                base_reward = self._hit_ball_at(hit_idx, lvl) * height_factor
+                # Clutter penalty (lvl≥3): discourages splitting big balls when many
+                # smaller balls are already cluttering the screen.
+                if lvl >= 3:
+                    n_small = int(np.sum(self.ball_level[:n] < lvl))
+                    clutter_penalty = REWARDS_CLUTTER_SPLIT * max(0, n_small - 3)
+                else:
+                    clutter_penalty = 0.0
+                reward += base_reward + clutter_penalty + shot_quality_bonus
                 hit_info["balls_hit"] += 1
 
                 # Danger split check: ball center close to agent horizontally

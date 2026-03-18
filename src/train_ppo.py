@@ -1,34 +1,29 @@
-"""Bubble Trouble RL — MaskablePPO two-phase training.
+"""Bubble Trouble RL — MaskablePPO with cycling curriculum.
 
-Phase 1 (Warmup): Progressive curriculum across levels 1-12.
-  All envs see the same level range that advances with training.
-  Agent learns fundamental skills: move, shoot, dodge, pop.
+Single continuous training run with a cycling curriculum:
+  1. Progressive expansion (35%): levels 1-3 → 1-5 → 3-8 → 5-10 → 7-12
+  2. Full game + hard refreshers (65%): full 1-12, then hard 5-12, then final 1-12
 
-Phase 2 (Level-Distributed Mastery): All levels trained simultaneously.
-  One env per level (round-robin). Every PPO batch contains transitions
-  from all levels. The `current_level` obs feature lets the policy
-  specialize per level. No catastrophic forgetting — every level is
-  always in the training distribution.
+All envs always play the SAME level range — coherent batches, no distribution
+shock. The full-game phases match the evaluation protocol exactly.
+Hard refresher phases force practice on levels the agent rarely reaches
+organically, without corrupting the value function.
 
-Why PPO over DQN/QR-DQN for this task:
-  - Full trajectory rollouts → better credit assignment for ceiling pop chains
-  - Entropy-regularized exploration → structured discovery of novel strategies
-  - Graceful curriculum shifts (no stale replay buffer)
-  - No frame stacking: peak_height + velocity obs features encode temporal context
+Key mechanisms:
+  - target_kl: Stops gradient updates early if the policy changes too fast.
+  - gamma=0.999: ~1000-step planning horizon for ceiling pop chains.
+  - 4 gradient epochs per rollout with target_kl as guardrail.
+  - 1024×512×256 MLP: capacity for 12 diverse level strategies.
 
 Usage:
-  python src/train.py                                      # full two-phase (200M steps)
-  python src/train.py --warmup-steps 100000000             # longer warmup
-  python src/train.py --warmup-only                        # curriculum only
-  python src/train.py --skip-warmup --resume checkpoints/warmup_model.zip
+  python src/train.py                                      # full 300M steps
   python src/train.py --timesteps 1000000 --n-envs 4       # quick smoke test
+  python src/train.py --resume checkpoints/periodic/ppo_XXX.zip --vecnorm ...
 """
 
 import argparse
 import os
-import sys
 
-import numpy as np
 import torch as th
 
 from sb3_contrib import MaskablePPO
@@ -70,28 +65,8 @@ def make_env(rank: int, start_level: int = 1, max_level: int = NUM_LEVELS,
 
 def build_env(n_envs: int, start_level: int, max_level: int,
               powerups: bool, seed: int | None) -> VecNormalize:
-    """All workers see the same level range (for curriculum warmup)."""
+    """All workers see the same level range."""
     fns = [make_env(i, start_level, max_level, powerups, seed) for i in range(n_envs)]
-    venv = SubprocVecEnv(fns) if n_envs > 1 else DummyVecEnv(fns)
-    return VecNormalize(venv, norm_obs=False, norm_reward=True, clip_reward=50.0)
-
-
-def build_level_distributed_env(n_envs: int, num_levels: int,
-                                seed: int | None) -> VecNormalize:
-    """Each worker pinned to a specific level (round-robin).
-
-    With n_envs >= num_levels, every level gets at least one dedicated worker.
-    With fewer envs, levels are spread evenly across the range.
-    """
-    fns = []
-    for i in range(n_envs):
-        if n_envs >= num_levels:
-            level = (i % num_levels) + 1
-        else:
-            # Spread evenly: e.g. 4 envs across 22 levels → levels 1, 8, 15, 22
-            level = int(1 + i * (num_levels - 1) / max(1, n_envs - 1))
-        fns.append(make_env(i, start_level=level, max_level=level,
-                            enable_powerups=True, seed=seed))
     venv = SubprocVecEnv(fns) if n_envs > 1 else DummyVecEnv(fns)
     return VecNormalize(venv, norm_obs=False, norm_reward=True, clip_reward=50.0)
 
@@ -177,34 +152,6 @@ class MetricsCallback(BaseCallback):
         return True
 
 
-def make_callbacks(checkpoint_dir: str, log_dir: str, eval_env,
-                   n_envs: int, phase_name: str,
-                   curriculum=None, ent_schedule=None) -> CallbackList:
-    cbs = [
-        EvalCallback(
-            eval_env,
-            best_model_save_path=os.path.join(checkpoint_dir, "best"),
-            log_path=os.path.join(log_dir, "eval"),
-            eval_freq=max(500_000 // n_envs, 1000),
-            n_eval_episodes=10,
-            deterministic=True,
-            verbose=1,
-        ),
-        CheckpointCallback(
-            save_freq=max(5_000_000 // n_envs, 1000),
-            save_path=os.path.join(checkpoint_dir, "periodic"),
-            name_prefix=f"ppo_{phase_name}",
-            verbose=1,
-        ),
-        MetricsCallback(),
-    ]
-    if curriculum is not None:
-        cbs.append(CurriculumCallback(curriculum, verbose=1))
-    if ent_schedule is not None:
-        cbs.append(ent_schedule)
-    return CallbackList(cbs)
-
-
 # ---------------------------------------------------------------------------
 # Schedules & model construction
 # ---------------------------------------------------------------------------
@@ -241,6 +188,7 @@ def build_model(env, device: str, seed: int | None,
         ent_coef=T["ent_coef_start"],  # decayed by EntropyScheduleCallback
         vf_coef=T["vf_coef"],
         max_grad_norm=T["max_grad_norm"],
+        target_kl=T["target_kl"],
         policy_kwargs=dict(
             net_arch=dict(pi=T["net_arch_pi"], vf=T["net_arch_vf"]),
             activation_fn=th.nn.ReLU,
@@ -269,18 +217,12 @@ def save(model, env, checkpoint_dir: str, name: str) -> tuple[str, str]:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Train Bubble Trouble with MaskablePPO (two-phase: warmup + level-distributed)"
+        description="Train Bubble Trouble with MaskablePPO (cycling curriculum)"
     )
     parser.add_argument("--timesteps", type=int, default=None,
                         help=f"Total training timesteps (default: {T['total_timesteps']:,})")
-    parser.add_argument("--warmup-steps", type=int, default=None,
-                        help="Phase 1 warmup timesteps (default: 40%% of total)")
-    parser.add_argument("--warmup-only", action="store_true",
-                        help="Run only Phase 1 (curriculum warmup)")
-    parser.add_argument("--skip-warmup", action="store_true",
-                        help="Skip to Phase 2 (requires --resume)")
     parser.add_argument("--n-envs", type=int, default=None,
-                        help=f"Parallel envs (default: {T['n_envs']} warmup, {NUM_LEVELS} mastery)")
+                        help=f"Parallel envs (default: {T['n_envs']})")
     parser.add_argument("--resume", type=str, default=None,
                         help="Path to checkpoint .zip to resume from")
     parser.add_argument("--vecnorm", type=str, default=None,
@@ -301,119 +243,70 @@ def main():
         device = "cuda" if th.cuda.is_available() else "cpu"
 
     total_timesteps = args.timesteps or T["total_timesteps"]
-    n_warmup_envs = args.n_envs or T["n_envs"]
-    n_mastery_envs = args.n_envs or NUM_LEVELS
-    warmup_steps = args.warmup_steps or int(total_timesteps * 0.4)
-    mastery_steps = total_timesteps - warmup_steps
+    n_envs = args.n_envs or T["n_envs"]
 
-    vecnorm_path = args.vecnorm  # track across phases
-
-    # ===================================================================
-    # Phase 1: Curriculum Warmup
-    # ===================================================================
-    if not args.skip_warmup:
-        print(f"\n{'='*60}")
-        print(f"Phase 1: Curriculum Warmup  ({warmup_steps:,} steps, {n_warmup_envs} envs)")
-        print(f"  net={T['net_arch_pi']}  gamma={T['gamma']}  device={device}")
-        print(f"  LR: {T['learning_rate_start']:.1e} → {T['learning_rate_end']:.1e}")
-        print(f"  entropy: {T['ent_coef_start']} → {T['ent_coef_end']}")
-        print(f"{'='*60}\n")
-
-        _, min_lvl, max_lvl, powerups = CURRICULUM[0]
-        env = build_env(n_warmup_envs, min_lvl, max_lvl, powerups, args.seed)
-        eval_env = build_eval_env()
-
-        if args.resume:
-            print(f"Resuming warmup from {args.resume}")
-            if vecnorm_path and os.path.exists(vecnorm_path):
-                env = VecNormalize.load(vecnorm_path, env.venv)
-                env.norm_obs = False
-                env.clip_reward = 50.0
-            model = MaskablePPO.load(args.resume, env=env, device=device)
-        else:
-            model = build_model(env, device, args.seed, args.log_dir)
-
-        ent_cb = EntropyScheduleCallback(
-            T["ent_coef_start"], T["ent_coef_end"], warmup_steps)
-
-        model.learn(
-            total_timesteps=warmup_steps,
-            callback=make_callbacks(
-                args.checkpoint_dir, args.log_dir, eval_env,
-                n_warmup_envs, "warmup",
-                curriculum=CURRICULUM, ent_schedule=ent_cb,
-            ),
-            progress_bar=True,
-            reset_num_timesteps=(args.resume is None),
-            log_interval=100,
-        )
-
-        warmup_model_path, warmup_vecnorm_path = save(
-            model, env, args.checkpoint_dir, "warmup_model"
-        )
-        print(f"\nPhase 1 complete → {warmup_model_path}.zip")
-        env.close()
-        eval_env.close()
-
-        if args.warmup_only:
-            print("--warmup-only: stopping after Phase 1.")
-            return
-
-        resume_path = warmup_model_path + ".zip"
-        vecnorm_path = warmup_vecnorm_path
-    else:
-        if not args.resume:
-            print("ERROR: --skip-warmup requires --resume <checkpoint.zip>")
-            sys.exit(1)
-        resume_path = args.resume
-
-    # ===================================================================
-    # Phase 2: Level-Distributed Mastery
-    # ===================================================================
     print(f"\n{'='*60}")
-    print(f"Phase 2: Level-Distributed Mastery  ({mastery_steps:,} steps, {n_mastery_envs} envs)")
-    print(f"  {n_mastery_envs} envs across {NUM_LEVELS} levels (round-robin)")
-    print(f"  LR: {T['learning_rate_start']*0.3:.1e} → {T['learning_rate_end']:.1e}")
-    print(f"  entropy: {T['ent_coef_end']}  (fixed, exploitation-focused)")
+    print(f"MaskablePPO — Cycling Curriculum  ({total_timesteps:,} steps, {n_envs} envs)")
+    print(f"  net={T['net_arch_pi']}  gamma={T['gamma']}  target_kl={T['target_kl']}")
+    print(f"  n_steps={T['n_steps']}  batch={T['batch_size']}  epochs={T['n_epochs']}")
+    print(f"  LR: {T['learning_rate_start']:.1e} → {T['learning_rate_end']:.1e}")
+    print(f"  entropy: {T['ent_coef_start']} → {T['ent_coef_end']}")
+    print(f"  curriculum: {len(CURRICULUM)} phases")
+    print(f"  device={device}")
     print(f"{'='*60}\n")
 
-    env = build_level_distributed_env(n_mastery_envs, NUM_LEVELS, args.seed)
-    if vecnorm_path and os.path.exists(vecnorm_path):
-        env = VecNormalize.load(vecnorm_path, env.venv)
-        env.norm_obs = False
-        env.clip_reward = 50.0
+    # --- Build env from first curriculum phase ---
+    _, min_lvl, max_lvl, powerups = CURRICULUM[0]
+    env = build_env(n_envs, min_lvl, max_lvl, powerups, args.seed)
     eval_env = build_eval_env()
 
-    # Lower LR for fine-tuning; fixed low entropy for exploitation
-    lr_mastery = linear_schedule(T["learning_rate_start"] * 0.3,
-                                 T["learning_rate_end"])
-    batch_size = _adjusted_batch_size(n_mastery_envs)
+    if args.resume:
+        print(f"Resuming from {args.resume}")
+        if args.vecnorm and os.path.exists(args.vecnorm):
+            env = VecNormalize.load(args.vecnorm, env.venv)
+            env.norm_obs = False
+            env.clip_reward = 50.0
+        model = MaskablePPO.load(args.resume, env=env, device=device)
+    else:
+        model = build_model(env, device, args.seed, args.log_dir)
 
-    model = MaskablePPO.load(
-        resume_path,
-        env=env,
-        device=device,
-        custom_objects={
-            "learning_rate": lr_mastery,
-            "ent_coef": T["ent_coef_end"],
-            "batch_size": batch_size,
-        },
-    )
+    # --- Callbacks ---
+    ent_cb = EntropyScheduleCallback(
+        T["ent_coef_start"], T["ent_coef_end"], total_timesteps)
 
-    model.learn(
-        total_timesteps=mastery_steps,
-        callback=make_callbacks(
-            args.checkpoint_dir, args.log_dir, eval_env,
-            n_mastery_envs, "mastery",
+    callbacks = CallbackList([
+        EvalCallback(
+            eval_env,
+            best_model_save_path=os.path.join(args.checkpoint_dir, "best"),
+            log_path=os.path.join(args.log_dir, "eval"),
+            eval_freq=max(500_000 // n_envs, 1000),
+            n_eval_episodes=10,
+            deterministic=True,
+            verbose=1,
         ),
+        CheckpointCallback(
+            save_freq=max(5_000_000 // n_envs, 1000),
+            save_path=os.path.join(args.checkpoint_dir, "periodic"),
+            name_prefix="ppo",
+            verbose=1,
+        ),
+        MetricsCallback(),
+        CurriculumCallback(CURRICULUM, verbose=1),
+        ent_cb,
+    ])
+
+    # --- Train ---
+    model.learn(
+        total_timesteps=total_timesteps,
+        callback=callbacks,
         progress_bar=True,
-        reset_num_timesteps=False,
+        reset_num_timesteps=(args.resume is None),
         log_interval=100,
     )
 
-    model_path, final_vecnorm = save(model, env, args.checkpoint_dir, "final_model")
+    model_path, vecnorm_path = save(model, env, args.checkpoint_dir, "final_model")
     print(f"\nTraining complete — saved to {model_path}.zip")
-    print(f"VecNormalize stats → {final_vecnorm}")
+    print(f"VecNormalize stats → {vecnorm_path}")
 
     env.close()
     eval_env.close()

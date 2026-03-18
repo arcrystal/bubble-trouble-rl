@@ -22,11 +22,16 @@ pip install -r requirements.txt
 python src/play.py              # start from level 1
 python src/play.py 15           # start from level 15
 
-# Train — QR-DQN with 6-stage curriculum (~45 min for 10M steps)
-python src/train.py                                          # full 10M-step run
-python src/train.py --timesteps 5000000                      # shorter run
-python src/train.py --timesteps 100000 --n-envs 4            # quick smoke test
-python src/train.py --resume checkpoints/final_model --vecnorm checkpoints/final_model_vecnorm.pkl  # resume
+# Train — MaskablePPO (action-masked, feedforward MLP)
+python src/train_ppo.py                                          # full 300M-step run
+python src/train_ppo.py --timesteps 5000000                      # shorter run
+python src/train_ppo.py --timesteps 100000 --n-envs 4            # quick smoke test
+python src/train_ppo.py --resume checkpoints/periodic/ppo_XXX.zip --vecnorm checkpoints/periodic/ppo_XXX_vecnorm.pkl  # resume
+
+# Train — RecurrentPPO (LSTM policy, no action masking)
+python src/train_recurrent.py                                    # full 300M-step run
+python src/train_recurrent.py --timesteps 100000 --n-envs 4      # quick smoke test
+python src/train_recurrent.py --resume checkpoints/recurrent/periodic/recurrent_ppo_XXX.zip --vecnorm ...
 
 # Evaluate trained agent
 python src/evaluate.py play checkpoints/best/best_model.zip         # visual
@@ -67,7 +72,8 @@ Key sections:
 - `LOWERING_CEIL_TARGET_RATIO = 0.55`, `LOWERING_CEIL_SPEED_RATIO = 0.04` — ceiling descent config
 - `LEVEL_HEIGHT_OVERRIDE` — per-level play area height overrides for short maps (level 7: 70%)
 - `MAX_OBSTACLES = 8`, `MAX_BALLS = 64`
-- `TRAINING` — PPO hyperparameters (n_envs=16, n_steps=2048, batch_size=4096, n_epochs=4, 512×256×128 MLP, gamma=0.995, 300M total_timesteps)
+- `TRAINING` — MaskablePPO hyperparameters (n_envs=16, n_steps=8192, batch_size=8192, n_epochs=4, 1024×512×256 MLP, gamma=0.999, 300M total_timesteps)
+- `RECURRENT_TRAINING` — RecurrentPPO hyperparameters (n_envs=16, n_steps=2048, 512×256 MLP + 256-unit LSTM, gamma=0.999, 300M total_timesteps)
 - `CURRICULUM` — 6 phases: `(start_timestep, min_level, max_level, powerups_enabled)` — progressive level expansion
 - `LEVEL_BACKGROUNDS` — per-level RGB background colors for renderer
 - `compute_ball_properties(level, width, height)` — derives radius, max_yspeed, yacc from kinematic equations
@@ -126,9 +132,9 @@ Wraps the engine as a standard Gymnasium environment.
 
 **Action space**: `MultiDiscrete([3, 2])` — movement (0=LEFT, 1=RIGHT, 2=STILL) × shooting (0=SHOOT, 1=NO_SHOOT). Allows simultaneous move + shoot.
 
-**Observation space**: `Box(low=-1, high=1, shape=(206,), dtype=float32)`. All features normalized to [-1, 1]. With frame stacking (n=4), training sees shape `(824,)`.
+**Observation space**: `Box(low=-1, high=1, shape=(224,), dtype=float32)`. All features normalized to [-1, 1]. No frame stacking — temporal context is encoded via `peak_height`, `intercept_x`, and velocity features.
 
-Layout (206 elements):
+Layout (224 elements):
 
 | Index | Count | Feature |
 |-------|-------|---------|
@@ -141,20 +147,24 @@ Layout (206 elements):
 | 96-111 | 16 | Ball is_active flag (1.0 if ball exists, 0.0 if empty slot) |
 | 112-127 | 16 | Relative x: signed distance from agent to ball center (saves network subtraction) |
 | 128-143 | 16 | Peak height: predicted apex y when rising, 1.0 when falling (ceiling pop candidates) |
-| 144 | 1 | Agent center x |
-| 145 | 1 | Laser active (1.0 / -1.0) |
-| 146 | 1 | Longest laser length |
-| 147 | 1 | Laser x position (where the laser is horizontally) |
-| 148 | 1 | Can-fire (1.0 if SHOOT would fire, -1.0 if all slots busy) |
-| 149 | 1 | Ball count ratio |
-| 150 | 1 | Time remaining ratio |
-| 151 | 1 | Current level (auto-scales with NUM_LEVELS) |
-| 152 | 1 | Has laser grid (1.0 / -1.0) |
-| 153 | 1 | Laser stuck at ceiling (1.0 / -1.0) |
-| 154 | 1 | Power-up visible on ground or falling (1.0 / -1.0) |
-| 155 | 1 | Signed distance to power-up |
-| 156-157 | 2 | Reserved |
-| 158-205 | 48 | Obstacle features: 8 slots x 6 values (center_x, center_y, width, height, type, is_passable) |
+| 144-159 | 16 | Intercept x: predicted ball center x when laser reaches ball's current height. Formula: ball_cx + ball_xspeed × (ball_cy / screen_height). Directly encodes where to stand to intercept each ball — a product across position, speed, and laser-speed constant that the MLP cannot derive without knowing the laser speed. |
+| 160 | 1 | Agent center x |
+| 161 | 1 | Laser active (1.0 / -1.0) |
+| 162 | 1 | Longest laser length |
+| 163 | 1 | Laser x position (where the laser is horizontally) |
+| 164 | 1 | Can-fire (1.0 if SHOOT would fire, -1.0 if all slots busy) |
+| 165 | 1 | Ball count ratio |
+| 166 | 1 | Time remaining ratio |
+| 167 | 1 | Current level (auto-scales with NUM_LEVELS) |
+| 168 | 1 | Best chain intercept x: predicted intercept position of the ball with the best ceiling pop chain potential. Uses full pop physics model (velocity inheritance, chain-depth impulse, level-dependent gravity, kinematic prediction). Tells the agent WHERE to stand for the best chain shot. |
+| 169 | 1 | Best chain quality: how good the best chain pop opportunity is right now. quality = max_rise/ball_cy weighted by level. Values near +1.0 = children WILL reach ceiling if ball is hit now. Values near -1.0 = no viable chain opportunity. Critical for levels 9-10 (lvl-5/6 balls). |
+| 170 | 1 | Has laser grid (1.0 / -1.0) |
+| 171 | 1 | Laser stuck at ceiling (1.0 / -1.0) |
+| 172 | 1 | Power-up visible on ground or falling (1.0 / -1.0) |
+| 173 | 1 | Signed distance to power-up |
+| 174 | 1 | n_rising_ratio: fraction of active balls currently rising (yspeed<0). Pre-aggregates 16 yspeed features into one signal encoding how wide the current ceiling-pop window is. |
+| 175 | 1 | closest_approach_time: seconds until nearest approaching ball reaches agent x. = |relative_x| / |xspeed|, capped 3s, normalized. Non-trivial division across feature channels; tells agent how urgently to dodge. |
+| 176-223 | 48 | Obstacle features: 8 slots x 6 values (center_x, center_y, width, height, type, is_passable) |
 
 **Action masking**: `action_masks()` returns flat bool array of shape `(5,)` for `MultiDiscrete([3, 2])`: `[LEFT, RIGHT, STILL, SHOOT, NO_SHOOT]`. SHOOT is masked when no laser slot is available. Used by `MaskablePPO` from sb3-contrib.
 
@@ -164,43 +174,50 @@ Ball slots are sorted by horizontal distance to agent center. Empty ball/obstacl
 
 **`set_curriculum()`**: Called by the training callback to adjust `start_level`, `max_level`, and `enable_powerups` between episodes.
 
-### `src/train.py` — QR-DQN Training
+### `src/train_ppo.py` — MaskablePPO Training
 
-Uses sb3-contrib `QRDQN` (Quantile Regression DQN). Default: 10M timesteps, single-phase with 5-stage curriculum.
+Uses sb3-contrib `MaskablePPO` with `ActionMasker`. Default: 300M timesteps, cycling curriculum.
 
-**Why QR-DQN over PPO**:
-- **Off-policy**: each transition replayed ~2500× (200K buffer / 256 batch) vs PPO's 4×
-- **Distributional**: 50 quantiles model full return distribution — handles bimodal rewards (−0.002/step to +118 ceiling chain) that PPO's scalar value collapses
-- **Implicit prioritization**: Quantile Huber loss scales gradient with TD error magnitude — ceiling pop events (large TD error) automatically receive proportionally larger updates
-- **n-step returns** (n=3): better credit assignment for multi-step sequences
-- **No frame stacking**: `peak_height` + `velocity` obs features already provide temporal context
-- **Speed**: ~3700 it/s (45 min for 10M steps) vs PPO's ~1500 it/s for 300M steps (55 hours)
+**Curriculum structure**:
+1. Progressive expansion (35%): levels 1-3 → 1-5 → 3-8 → 5-10 → 7-12
+2. Full game + hard refreshers (65%): full 1-12, then hard 5-12, then final 1-12
+
+All envs always play the same level range per phase — coherent batches, no distribution shock. Hard refresher phases force practice on levels the agent rarely reaches organically.
 
 **Training stack** (wrapper order matters):
 1. `BubbleTroubleEnv` — base gymnasium env
-2. `FlatDiscreteWrapper` — converts `MultiDiscrete([3,2])` → `Discrete(6)`, exposes `action_masks()`
+2. `ActionMasker` — wraps env with `action_masks()` callback for MaskablePPO
 3. `Monitor` — episode stats tracking
-4. `SubprocVecEnv` / `DummyVecEnv` — parallelization (8 envs)
+4. `SubprocVecEnv` / `DummyVecEnv` — parallelization (16 envs)
 5. `VecNormalize(norm_obs=False, norm_reward=True)` — reward normalization only
 
-**Action masking** via `MaskedQRDQN`:
-- **Exploration**: random choices drawn only from valid actions (no wasted-shot accumulation during random play)
-- **Greedy**: Q-values for invalid actions set to −∞ before argmax via `MaskedQuantileNetwork._predict()`
-- **Eval** (deterministic=True): no masking — network uses `can_fire` obs feature
-
-**Key classes**:
-- `FlatDiscreteWrapper` — action flattening + mask mapping for 6 discrete combos
-- `MaskedQuantileNetwork` — `QuantileNetwork` subclass with `_masks` attribute for Q-value masking
-- `MaskedQRDQNPolicy` — instantiates `MaskedQuantileNetwork` instead of standard `QuantileNetwork`
-- `MaskedQRDQN` — overrides `predict()` for masked exploration and greedy selection
+**Key hyperparameters**: gamma=0.999 (~1000-step planning horizon for ceiling pop chains), target_kl guards policy update magnitude, 8 gradient epochs per rollout, 1024×512×256 MLP.
 
 **Callbacks**:
-- `CurriculumCallback` — advances through `QRDQN_CURRICULUM` phases in config
+- `CurriculumCallback` — advances through `CURRICULUM` phases in config
 - `MetricsCallback` — logs game stats to TensorBoard at episode boundaries
 - `EvalCallback` — periodic evaluation (every 500K steps), saves best model
 - `CheckpointCallback` — snapshot every 5M steps
 
 **Saved artifacts**: `final_model.zip` + `final_model_vecnorm.pkl`. VecNormalize stats needed for evaluation.
+
+### `src/train_recurrent.py` — RecurrentPPO (LSTM) Training
+
+Uses sb3-contrib `RecurrentPPO` with `MlpLstmPolicy`. Same curriculum as MaskablePPO but with an LSTM policy that learns temporal strategies natively.
+
+**Why LSTM**: Multi-step strategies (position → wait → shoot for ceiling chain) are inherently sequential. An MLP treats each frame independently and relies on hand-crafted temporal features. An LSTM learns temporal patterns from raw experience — when to wait, when to shoot, level-specific dodge patterns over time.
+
+**No action masking**: RecurrentPPO doesn't support `ActionMasker`. The LSTM learns to avoid invalid shots via the `can_fire` observation feature and `wasted_shot` penalty. No `ActionMasker` wrapper is used.
+
+**Architecture**: 512×256 MLP → 256-unit LSTM (separate actor/critic LSTMs, `enable_critic_lstm=True`). Smaller MLP than MaskablePPO because the LSTM adds its own representational capacity.
+
+**Training stack** (wrapper order matters):
+1. `BubbleTroubleEnv` — base gymnasium env
+2. `Monitor` — episode stats tracking (no ActionMasker)
+3. `SubprocVecEnv` / `DummyVecEnv` — parallelization (16 envs)
+4. `VecNormalize(norm_obs=False, norm_reward=True)` — reward normalization only
+
+**Saved artifacts**: `checkpoints/recurrent/final_model.zip` + `final_model_vecnorm.pkl`.
 
 ### `src/renderer.py` — `PygameRenderer`
 
@@ -245,7 +262,7 @@ Levels 1-12 are measured from the reference video (Bubble Struggle 2: Rebubbled)
 | 11 | 8x lvl2 (static, high bounce) | none | Two groups at top, bounce to 76% height |
 | 12 | 6x lvl3 (static) + 1x lvl3 | none | Mixed purple/blue-purple, one mobile green |
 
-## Reference Videos — `game_levels/`
+## Reference Videos — `assets/game_levels/`
 
 Individual level completion videos from the real Bubble Struggle 2: Rebubbled game. These are the **ground truth** for configuring `LEVEL_DEFS`, `OBSTACLE_DEFS`, `LEVEL_BACKGROUNDS`, `LEVEL_HEIGHT_OVERRIDE`, ball physics, and obstacle behavior. All videos are 640×360 @ 30fps.
 
@@ -287,10 +304,10 @@ Individual level completion videos from the real Bubble Struggle 2: Rebubbled ga
 When adjusting `LEVEL_DEFS` or `OBSTACLE_DEFS` in `config.py`, extract frames from the relevant video:
 ```bash
 # First frame (usually "Get Ready" screen showing initial layout)
-ffmpeg -i game_levels/levelNN.mp4 -vf "select=eq(n\,0)" -vframes 1 -y /tmp/levelNN_frame0.png
+ffmpeg -i assets/game_levels/levelNN.mp4 -vf "select=eq(n\,0)" -vframes 1 -y /tmp/levelNN_frame0.png
 
 # Gameplay frame at T seconds
-ffmpeg -i game_levels/levelNN.mp4 -ss T -vframes 1 -y /tmp/levelNN_tT.png
+ffmpeg -i assets/game_levels/levelNN.mp4 -ss T -vframes 1 -y /tmp/levelNN_tT.png
 
 # Extract ball positions from frame using Python + OpenCV
 # Convert video pixel coords to game ratios: x_ratio = (x_px - 51) / 539, y_ratio = (y_px - 20) / 273
@@ -308,14 +325,17 @@ Designed to make strategic shooting the dominant strategy. All values in `config
 |-----------|-------|---------|
 | `time_penalty` | -0.002 | Every step |
 | `wasted_shot` | -0.30 | Laser reaches ceiling/obstacle without hitting any ball |
-| `hit_ball_base` | 0.8 * level | Ball split (level 2-6), scaled by height_bonus_factor |
-| `pop_ball` | 1.5 | Smallest ball (level 1) destroyed, scaled by height_bonus_factor |
-| `height_bonus_factor` | 0.5 | Up to 50% extra reward for hitting balls near ceiling |
+| `hit_ball_base` | 0.8 * level | Ball split (level 2-6), scaled by height_bonus_factor + shot_quality_bonus |
+| `pop_ball` | 1.5 | Smallest ball (level 1) destroyed, scaled by height_bonus_factor + shot_quality_bonus |
+| `height_bonus_factor` | 0.5 | Up to 50% extra reward for hitting balls near ceiling (spatial signal) |
+| `shot_quality_scale` | 0.25 | Up to 0.25 × height_factor extra for hitting fast-rising balls (temporal signal). upward_factor = min(1, \|yspeed\|/max_yspeed) when ball is rising, 0 otherwise. Teaches the agent to shoot on the upswing not at apex — fast-rising parents produce faster children for chain pops. |
+| `clutter_pop_bonus` | 0.10/ball | Extra per existing lvl-1 ball beyond 2 when popping — rewards clearing crowded screens |
+| `clutter_split_penalty` | -0.04/ball | Penalty per lower-level ball beyond 3 when splitting lvl≥3 — discourages adding more chaos to cluttered screens |
 | `danger_split_penalty` | -0.2 | Splitting a ball that's close to agent and low on screen |
-| `finish_level` | 10.0 | All balls cleared on current level |
+| `finish_level` | 10.0 × (1 + (level-1) × 0.25) | All balls cleared — scaled by level (L1: 10.0, L6: 22.5, L12: 37.5) |
 | `time_bonus_scale` | 8.0 * (remaining/max) | Bonus for faster clears |
 | `timeout` | -3.0 | Level timer runs out without clearing |
-| `game_over` | -8.0 | Agent hit by ball (death) |
+| `game_over` | -8.0 × (1 + levels_cleared × 0.3) | Agent hit by ball — scaled by progress (0 cleared: -8.0, 5 cleared: -20.0, 11 cleared: -34.4) |
 | `pickup_powerup` | 0.3 | Agent picks up a ground power-up |
 | `clear_all_levels` | 50.0 | Beat all levels |
 
@@ -325,15 +345,25 @@ Designed to make strategic shooting the dominant strategy. All values in `config
 
 ## Curriculum Learning
 
-5 phases defined in `config.py:QRDQN_CURRICULUM` (10M total). Each transition is replayed ~2500× by the off-policy replay buffer, so far fewer env steps are needed than PPO.
+Cycling curriculum defined in `config.py:CURRICULUM` (300M total steps). Two-stage design: progressive expansion then full-game mastery with hard refreshers.
+
+**Stage 1 — Progressive expansion** (first ~105M steps):
 
 | Phase | Timestep | Levels | Power-ups | Focus |
 |-------|----------|--------|-----------|-------|
 | 0 | 0 | 1-3 | Off | Learn to shoot (simple balls) |
-| 1 | 2M | 1-5 | Off | Add obstacle levels (door wall) |
-| 2 | 6M | 3-8 | Off | Opening walls, static balls, larger balls |
-| 3 | 9M | 5-10 | Off | Level-6 ball — discover ceiling pop chains |
-| 4 | 10M | 1-12 | On | Full game with power-ups |
+| 1 | 20M | 1-5 | Off | Add obstacle levels (door wall) |
+| 2 | 50M | 3-8 | Off | Opening walls, static balls, larger balls |
+| 3 | 80M | 5-10 | Off | Level-6 ball — discover ceiling pop chains |
+| 4 | 105M | 7-12 | Off | Hard late levels |
+
+**Stage 2 — Full game + hard refreshers** (remaining ~195M steps):
+
+| Phase | Timestep | Levels | Power-ups | Focus |
+|-------|----------|--------|-----------|-------|
+| 5 | 130M | 1-12 | On | Full game with power-ups |
+| 6 | 180M | 5-12 | On | Hard refresher — force late-level practice |
+| 7 | 240M | 1-12 | On | Final full game |
 
 ## Known Patterns & Pitfalls
 
@@ -359,7 +389,7 @@ Each laser computes its max reachable length at fire time based on obstacles dir
 All ball level references use `MAX_BALL_LEVEL` from config, never hardcoded numbers. The `_load_random_level()` weight formula `2^lvl - 1` auto-scales. To add more ball levels, just add entries to `BALL_LEVELS` in config.py.
 
 ### Breaking changes (from original 7-level version)
-- Observation space: 110 → 206 elements (9 features per ball + relative_x + peak_height, 48 obstacle features)
+- Observation space: 110 → 206 → 222 → 224 elements (10 features per ball: added intercept_x; 2 global chain targeting features; 2 reserved slots now n_rising_ratio + closest_approach_time)
 - Ball levels: 4 → 6 (fixed normalizers now use level-6 values)
 - Ball colors reordered: lvl1=blue, lvl2=yellow, lvl3=green (measured from reference video)
 - Pop physics: chain-depth-aware model (BASE=0.52×h, CHAIN_GAIN=0.22, MASS_EXP=0.3); `ball_chain_depth` array added; clamp raised to 4×

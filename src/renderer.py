@@ -61,7 +61,7 @@ class PygameRenderer:
         self.agent_sprites = {}
         try:
             for name in ("left", "still", "right"):
-                img = pygame.image.load(f"Sprites/{name}.png")
+                img = pygame.image.load(f"assets/{name}.png")
                 self.agent_sprites[name] = img
         except (pygame.error, FileNotFoundError):
             self.agent_sprites = None
