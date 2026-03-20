@@ -5,7 +5,6 @@ This module is only imported when render_mode is set — it is NOT needed for tr
 
 import numpy as np
 import pygame
-import math
 from config import (
     POWERUP_LASER_GRID, POWERUP_HOURGLASS,
     DEFAULT_FPS, LEVEL_BACKGROUNDS, NUM_LEVELS,

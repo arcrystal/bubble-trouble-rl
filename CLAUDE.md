@@ -112,7 +112,7 @@ Three collision systems:
 
 **Laser lifecycle**: Fires from agent center, grows upward at `height/fps` pixels per frame (~60 frames = 1 second to reach ceiling). If it hits a ball, it deactivates immediately. If it reaches its max length (ceiling or obstacle bottom) without hitting anything, it's a wasted shot (penalty). `laser_hit_ball[]` array tracks whether each laser hit anything before deactivating. `laser_max_length[]` tracks per-laser ceiling (accounting for obstacles above).
 
-**Power-ups**: 15% drop chance per ball pop. Three types: double harpoon (2 simultaneous lasers), force field (survive one collision), hourglass (slow balls 50% for 5 seconds). Power-ups fall from the ball's pop position to the floor before becoming pickable. Only one power-up can exist at a time (checked via `powerup_on_ground or powerup_falling`).
+**Power-ups**: 15% drop chance per ball pop. Two types: laser grid (next laser sticks at ceiling for 5s, firing perpendicular crosshairs), hourglass (adds 15 seconds to the level timer). Power-ups fall from the ball's pop position to the floor before becoming pickable. Only one power-up can exist at a time (checked via `powerup_on_ground or powerup_falling`).
 
 **Level progression**: Sequential levels 1-12. When all balls are cleared, advance to next level. Steps reset per level (each level gets a full 60-second timer). Lasers, power-ups, and obstacles are cleared/reloaded on level transition.
 

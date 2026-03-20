@@ -153,16 +153,12 @@ OBSTACLE_DEFS = {
          (0.66, 0.00, 0.04, 0.50, OBSTACLE_OPENING, 0.38, -1, 1),   # top half → slides up
          (0.66, 0.50, 0.04, 0.50, OBSTACLE_OPENING, 0.38, +1, 1),   # bottom half → slides down
     ],
-    13: [(i / 6, 0.0, 0.025, 0.85) for i in range(1, 6)],      # 5 columns
-    14: [(0.30, 0.0, 0.03, 0.85), (0.67, 0.0, 0.03, 0.85)],   # 2 columns
-    15: [(0.45, 0.0, 0.04, 0.82)],                              # Wall divider
-    20: [(0.48, 0.0, 0.04, 0.82)],                              # Center wall
 }
 
 # Power-up types
 POWERUP_NONE = 0
 POWERUP_LASER_GRID = 2   # Laser fires in a grid pattern (perpendicular crosshairs)
-POWERUP_HOURGLASS = 3    # Slows all balls by 50% for 5 seconds
+POWERUP_HOURGLASS = 3    # Adds 15 seconds to the level timer
 
 POWERUP_DROP_CHANCE = 0.15          # 15% chance per ball pop
 LASER_GRID_STICK_SECONDS = 5.0      # how long a stuck grid laser remains at the ceiling
@@ -326,7 +322,7 @@ LEVEL_DEFS = {
         {"lvl": 3, "x": 0.25, "y": 0.25, "dir": "R", "color":GREEN},
     ],
 }
-NUM_LEVELS = len(LEVEL_DEFS)  # 22
+NUM_LEVELS = len(LEVEL_DEFS)  # 12
 
 # Per-level background colors (RGB tuples) for renderer — sampled from reference video
 LEVEL_BACKGROUNDS = {
