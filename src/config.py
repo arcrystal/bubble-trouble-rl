@@ -230,13 +230,13 @@ DEFAULT_LEVEL_TIME_SECONDS = 60.0
 DEFAULT_MAX_STEPS = int(DEFAULT_LEVEL_TIME_SECONDS * DEFAULT_FPS)
 
 # Observation space
-MAX_OBS_BALLS = 16  # Observation slots for balls
+MAX_OBS_BALLS = 64  # Observation slots for balls — matches MAX_BALLS so agent sees all splits
 OBS_PER_BALL = 10   # x, y, xspeed, yspeed, radius, level, is_active, relative_x, peak_height, intercept_x
 OBS_AGENT = 5       # x, laser_active, laser_length, laser_x, can_fire
 OBS_GLOBAL = 5      # num_balls_ratio, steps_remaining_ratio, current_level, best_chain_x, best_chain_quality
 OBS_POWERUP = 6     # has_laser_grid, laser_stuck, powerup_visible, powerup_dist, n_rising_ratio, closest_approach_time
 OBS_OBSTACLES = MAX_OBSTACLES * 6  # cx, cy, w, h, type, is_passable per obstacle
-OBS_SIZE = MAX_OBS_BALLS * OBS_PER_BALL + OBS_AGENT + OBS_GLOBAL + OBS_POWERUP + OBS_OBSTACLES  # 224
+OBS_SIZE = MAX_OBS_BALLS * OBS_PER_BALL + OBS_AGENT + OBS_GLOBAL + OBS_POWERUP + OBS_OBSTACLES  # 704
 
 # Level definitions — each level is a list of ball dicts.
 # Required keys: "lvl" (1-6), "x" (0-1 ratio of width), "y" (0-1 ratio of height)
@@ -355,17 +355,17 @@ TRAINING = {
     # Single-phase PPO with extended cycling curriculum.
     # No Phase 2 — the full-game curriculum phase IS the mastery phase.
     "n_envs": 16,
-    "total_timesteps": 300_000_000,
-    "learning_rate_start": 3e-4,   # Linear decay over full run: 3e-4 → 5e-6
+    "total_timesteps": 425_000_000,
+    "learning_rate_start": 5e-4,   # Linear decay over full run: 3e-4 → 5e-6
     "learning_rate_end": 5e-6,
     "n_steps": 8192,           # 16 envs × 8192 = 131K buffer — fits full late-level episodes in one GAE pass
     "batch_size": 8192,        # 16 minibatches per epoch
     "n_epochs": 4,             # target_kl already early-stops around epoch 3-4
     "gamma": 0.999,            # ~1000-step effective horizon for ceiling pop chain credit
     "gae_lambda": 0.95,
-    "clip_range": 0.2,
+    "clip_range": 0.15,
     "ent_coef_start": 0.02,    # Decays linearly over full run
-    "ent_coef_end": 0.003,
+    "ent_coef_end": 0.001,
     "vf_coef": 0.5,
     "max_grad_norm": 0.5,
     "target_kl": 0.015,        # Early-stop gradient updates if policy changes too fast
@@ -373,15 +373,11 @@ TRAINING = {
     "net_arch_vf": [1024, 512, 256],
 }
 
-# Cycling curriculum: progressive expansion → full game → hard refresher → full game polish.
-# All envs always play the SAME level range (coherent batches, no distribution shock).
-# Hard refresher phases (start_level=5+) force practice on levels the agent rarely
-# reaches organically, without the value-function corruption of individual-level pinning.
 # RecurrentPPO (LSTM) training hyperparameters — no action masking available,
 # so the LSTM must learn can_fire from observation context.
 # Longer n_steps critical: LSTM needs long unbroken sequences for hidden state.
 RECURRENT_TRAINING = {
-    "n_envs": 16,
+    "n_envs": 8,
     "total_timesteps": 120_000_000,
     "learning_rate_start": 3e-4,
     "learning_rate_end": 5e-6,
@@ -396,38 +392,58 @@ RECURRENT_TRAINING = {
     "vf_coef": 0.5,
     "max_grad_norm": 0.5,
     "target_kl": 0.015,
-    "net_arch_pi": [512, 256],    # Smaller MLP before LSTM — LSTM adds its own capacity
-    "net_arch_vf": [512, 256],
-    "lstm_hidden_size": 256,      # LSTM hidden state size
+    "net_arch_pi": [256, 128],    # Smaller MLP before LSTM — LSTM adds its own capacity
+    "net_arch_vf": [256, 128],
+    "lstm_hidden_size": 128,      # LSTM hidden state size
     "n_lstm_layers": 1,           # Single LSTM layer (more layers rarely help in RL)
 }
 
-# Recurrent curriculum: compressed early phases (LSTM needs less data for basics),
-# same late-phase budget. 200M total instead of 300M.
+# Recurrent curriculum: compressed early phases (LSTM needs less data for basics). 120M total.
 RECURRENT_CURRICULUM = [
-    # --- Progressive expansion (50M steps, 25%) ---
-    (0,             1, 3,  False),   # 5M  — Learn to shoot and dodge
-    (1_000_000,     1, 5,  False),   # 5M  — Door wall obstacle (L5)
-    (5_000_000,    3, 8,  False),   # 10M — Opening walls, static balls
-    (15_000_000,    5, 10, False),   # 10M — Level-6 ball, ceiling pop chains
-    (25_000_000,    7, 12, False),   # 10M — All hard levels, forced exposure
-    # --- Full game + hard refresher cycling (150M steps, 75%) ---
-    (35_000_000,    1, 12, True),    # 30M — Full sequential game
-    (65_000_000,   5, 12, True),    # 20M — Hard refresher
-    (85_000_000,   1, 12, True),    # 35M — Final full game polish
+    # --- Progressive expansion (28M steps) ---
+    (0,             1, 3,  False),   # 1M  — Learn to shoot and dodge
+    (1_000_000,    1, 5,  False),   # 5M  — Door wall obstacle (L5)
+    (6_000_000,    3, 8,  False),   # 6M  — Opening walls, static balls
+    (12_000_000,    5, 10, False),   # 8M  — Level-6 ball, ceiling pop chains
+    (20_000_000,    7, 12, False),   # 8M  — All hard levels, forced exposure
+    # --- Full game + hard refresher cycling (92M steps) ---
+    (28_000_000,   1, 12, True),    # 8M  — Full sequential game (build end-to-end play)
+    (36_000_000,   5, 12, True),    # 8.5M — Hard refresher (maintain L5-12 skills)
+    (44_500_000,   1, 12, True),    # 7.5M — Full game polish
+    (52_000_000,   9, 12, True),    # 8M  — Hard refresher (L9-12 focus)
+    (60_000_000,   1, 12, True),    # 8M  — Full game polish
+    (68_000_000,   10, 12, True),   # 8M  — Hard refresher (L10-12 focus)
+    (76_000_000,   1, 12, True),    # 8M  — Full game polish
+    (84_000_000,   11, 12, True),   # 8M  — Hard refresher (L11-12 focus)
+    (92_000_000,   1, 12, True),    # 8M  — Full game polish
+    (100_000_000,   12, 12, True),  # 8M  — Hard refresher (L12 only)
+    (108_000_000,   1, 12, True),   # 12M — Final full game polish
 ]
 
+# Cycling curriculum: progressive expansion → full game → hard refresher → full game polish.
+# All envs always play the SAME level range (coherent batches, no distribution shock).
+# Hard refresher phases (start_level=5+) force practice on levels the agent rarely
+# reaches organically, without the value-function corruption of individual-level pinning.
+# 425M total.
 CURRICULUM = [
-    # --- Progressive expansion (105M steps, 35%) ---
-    (0,             1, 3,  False),   # 16M — Learn to shoot and dodge
-    (16_000_000,    1, 5,  False),   # 16M — Door wall obstacle (L5)
-    (32_000_000,    3, 8,  False),   # 32M — Opening walls, static balls
-    (64_000_000,    5, 10, False),   # 36M — Level-6 ball, ceiling pop chains
-    (100_000_000,    7, 12, False),   # 25M — All hard levels, forced exposure
-    # --- Full game + hard refresher cycling (175M steps, 65%) ---
-    (125_000_000,   1, 12, True),    # 50M — Full sequential game (build end-to-end play)
-    (175_000_000,   5, 12, True),    # 50M — Hard refresher (maintain L5-12 skills)
-    (225_000_000,   1, 12, True),    # 75M — Final full game polish
+    # --- Progressive expansion (100M steps) ---
+    (0,             1, 3,  False),   # 5M  — Learn to shoot and dodge
+    (5_000_000,    1, 5,  False),   # 10M — Door wall obstacle (L5)
+    (15_000_000,    3, 8,  False),   # 25M — Opening walls, static balls
+    (40_000_000,    5, 10, False),   # 35M — Level-6 ball, ceiling pop chains
+    (75_000_000,    7, 12, False),   # 25M — All hard levels, forced exposure
+    # --- Full game + hard refresher cycling (325M steps) ---
+    (100_000_000,   1, 12, True),    # 30M — Full sequential game (build end-to-end play)
+    (130_000_000,   5, 12, True),    # 25M — Hard refresher (maintain L5-12 skills)
+    (155_000_000,   1, 12, True),    # 30M — Full game polish
+    (185_000_000,   9, 12, True),    # 25M — Hard refresher (L9-12 focus)
+    (210_000_000,   1, 12, True),    # 30M — Full game polish
+    (240_000_000,   10, 12, True),   # 25M — Hard refresher (L10-12 focus)
+    (265_000_000,   1, 12, True),    # 30M — Full game polish
+    (295_000_000,   11, 12, True),   # 25M — Hard refresher (L11-12 focus)
+    (320_000_000,   1, 12, True),    # 30M — Full game polish
+    (350_000_000,   12, 12, True),   # 25M — Hard refresher (L12 only)
+    (375_000_000,   1, 12, True),    # 50M — Final full game polish
 ]
 
 

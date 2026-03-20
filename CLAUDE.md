@@ -26,7 +26,7 @@ python src/play.py 15           # start from level 15
 python src/train_ppo.py                                          # full 300M-step run
 python src/train_ppo.py --timesteps 5000000                      # shorter run
 python src/train_ppo.py --timesteps 100000 --n-envs 4            # quick smoke test
-python src/train_ppo.py --resume checkpoints/periodic/ppo_XXX.zip --vecnorm checkpoints/periodic/ppo_XXX_vecnorm.pkl  # resume
+python src/train_ppo.py --resume checkpoints/ppo/periodic/ppo_XXX.zip --vecnorm checkpoints/ppo/periodic/ppo_XXX_vecnorm.pkl  # resume
 
 # Train — RecurrentPPO (LSTM policy, no action masking)
 python src/train_recurrent.py                                    # full 300M-step run
@@ -34,8 +34,8 @@ python src/train_recurrent.py --timesteps 100000 --n-envs 4      # quick smoke t
 python src/train_recurrent.py --resume checkpoints/recurrent/periodic/recurrent_ppo_XXX.zip --vecnorm ...
 
 # Evaluate trained agent
-python src/evaluate.py play checkpoints/best/best_model.zip         # visual
-python src/evaluate.py play checkpoints/best/best_model.zip --no-render  # headless stats
+python src/evaluate.py play checkpoints/ppo/best/best_model.zip         # visual
+python src/evaluate.py play checkpoints/ppo/best/best_model.zip --no-render  # headless stats
 python src/evaluate.py benchmark                                      # raw env speed
 
 # TensorBoard
@@ -132,39 +132,39 @@ Wraps the engine as a standard Gymnasium environment.
 
 **Action space**: `MultiDiscrete([3, 2])` — movement (0=LEFT, 1=RIGHT, 2=STILL) × shooting (0=SHOOT, 1=NO_SHOOT). Allows simultaneous move + shoot.
 
-**Observation space**: `Box(low=-1, high=1, shape=(224,), dtype=float32)`. All features normalized to [-1, 1]. No frame stacking — temporal context is encoded via `peak_height`, `intercept_x`, and velocity features.
+**Observation space**: `Box(low=-1, high=1, shape=(704,), dtype=float32)`. All features normalized to [-1, 1]. No frame stacking — temporal context is encoded via `peak_height`, `intercept_x`, and velocity features.
 
-Layout (224 elements):
+Layout (704 elements):
 
 | Index | Count | Feature |
 |-------|-------|---------|
-| 0-15 | 16 | Ball center x (sorted by horizontal distance to agent) |
-| 16-31 | 16 | Ball center y |
-| 32-47 | 16 | Ball x-speed |
-| 48-63 | 16 | Ball y-speed |
-| 64-79 | 16 | Ball radius |
-| 80-95 | 16 | Ball level (normalized by MAX_BALL_LEVEL) |
-| 96-111 | 16 | Ball is_active flag (1.0 if ball exists, 0.0 if empty slot) |
-| 112-127 | 16 | Relative x: signed distance from agent to ball center (saves network subtraction) |
-| 128-143 | 16 | Peak height: predicted apex y when rising, 1.0 when falling (ceiling pop candidates) |
-| 144-159 | 16 | Intercept x: predicted ball center x when laser reaches ball's current height. Formula: ball_cx + ball_xspeed × (ball_cy / screen_height). Directly encodes where to stand to intercept each ball — a product across position, speed, and laser-speed constant that the MLP cannot derive without knowing the laser speed. |
-| 160 | 1 | Agent center x |
-| 161 | 1 | Laser active (1.0 / -1.0) |
-| 162 | 1 | Longest laser length |
-| 163 | 1 | Laser x position (where the laser is horizontally) |
-| 164 | 1 | Can-fire (1.0 if SHOOT would fire, -1.0 if all slots busy) |
-| 165 | 1 | Ball count ratio |
-| 166 | 1 | Time remaining ratio |
-| 167 | 1 | Current level (auto-scales with NUM_LEVELS) |
-| 168 | 1 | Best chain intercept x: predicted intercept position of the ball with the best ceiling pop chain potential. Uses full pop physics model (velocity inheritance, chain-depth impulse, level-dependent gravity, kinematic prediction). Tells the agent WHERE to stand for the best chain shot. |
-| 169 | 1 | Best chain quality: how good the best chain pop opportunity is right now. quality = max_rise/ball_cy weighted by level. Values near +1.0 = children WILL reach ceiling if ball is hit now. Values near -1.0 = no viable chain opportunity. Critical for levels 9-10 (lvl-5/6 balls). |
-| 170 | 1 | Has laser grid (1.0 / -1.0) |
-| 171 | 1 | Laser stuck at ceiling (1.0 / -1.0) |
-| 172 | 1 | Power-up visible on ground or falling (1.0 / -1.0) |
-| 173 | 1 | Signed distance to power-up |
-| 174 | 1 | n_rising_ratio: fraction of active balls currently rising (yspeed<0). Pre-aggregates 16 yspeed features into one signal encoding how wide the current ceiling-pop window is. |
-| 175 | 1 | closest_approach_time: seconds until nearest approaching ball reaches agent x. = |relative_x| / |xspeed|, capped 3s, normalized. Non-trivial division across feature channels; tells agent how urgently to dodge. |
-| 176-223 | 48 | Obstacle features: 8 slots x 6 values (center_x, center_y, width, height, type, is_passable) |
+| 0-63 | 64 | Ball center x (sorted by horizontal distance to agent) |
+| 64-127 | 64 | Ball center y |
+| 128-191 | 64 | Ball x-speed |
+| 192-255 | 64 | Ball y-speed |
+| 256-319 | 64 | Ball radius |
+| 320-383 | 64 | Ball level (normalized by MAX_BALL_LEVEL) |
+| 384-447 | 64 | Ball is_active flag (1.0 if ball exists, 0.0 if empty slot) |
+| 448-511 | 64 | Relative x: signed distance from agent to ball center (saves network subtraction) |
+| 512-575 | 64 | Peak height: predicted apex y when rising, 1.0 when falling (ceiling pop candidates) |
+| 576-639 | 64 | Intercept x: predicted ball center x when laser reaches ball's current height. Formula: ball_cx + ball_xspeed × (ball_cy / screen_height). Directly encodes where to stand to intercept each ball — a product across position, speed, and laser-speed constant that the MLP cannot derive without knowing the laser speed. |
+| 640 | 1 | Agent center x |
+| 641 | 1 | Laser active (1.0 / -1.0) |
+| 642 | 1 | Longest laser length |
+| 643 | 1 | Laser x position (where the laser is horizontally) |
+| 644 | 1 | Can-fire (1.0 if SHOOT would fire, -1.0 if all slots busy) |
+| 645 | 1 | Ball count ratio |
+| 646 | 1 | Time remaining ratio |
+| 647 | 1 | Current level (auto-scales with NUM_LEVELS) |
+| 648 | 1 | Best chain intercept x: predicted intercept position of the ball with the best ceiling pop chain potential. Uses full pop physics model (velocity inheritance, chain-depth impulse, level-dependent gravity, kinematic prediction). Tells the agent WHERE to stand for the best chain shot. |
+| 649 | 1 | Best chain quality: how good the best chain pop opportunity is right now. quality = max_rise/ball_cy weighted by level. Values near +1.0 = children WILL reach ceiling if ball is hit now. Values near -1.0 = no viable chain opportunity. Critical for levels 9-10 (lvl-5/6 balls). |
+| 650 | 1 | Has laser grid (1.0 / -1.0) |
+| 651 | 1 | Laser stuck at ceiling (1.0 / -1.0) |
+| 652 | 1 | Power-up visible on ground or falling (1.0 / -1.0) |
+| 653 | 1 | Signed distance to power-up |
+| 654 | 1 | n_rising_ratio: fraction of active balls currently rising (yspeed<0). Pre-aggregates 64 yspeed features into one signal encoding how wide the current ceiling-pop window is. |
+| 655 | 1 | closest_approach_time: seconds until nearest approaching ball reaches agent x. = |relative_x| / |xspeed|, capped 3s, normalized. Non-trivial division across feature channels; tells agent how urgently to dodge. |
+| 656-703 | 48 | Obstacle features: 8 slots x 6 values (center_x, center_y, width, height, type, is_passable) |
 
 **Action masking**: `action_masks()` returns flat bool array of shape `(5,)` for `MultiDiscrete([3, 2])`: `[LEFT, RIGHT, STILL, SHOOT, NO_SHOOT]`. SHOOT is masked when no laser slot is available. Used by `MaskablePPO` from sb3-contrib.
 
@@ -389,7 +389,7 @@ Each laser computes its max reachable length at fire time based on obstacles dir
 All ball level references use `MAX_BALL_LEVEL` from config, never hardcoded numbers. The `_load_random_level()` weight formula `2^lvl - 1` auto-scales. To add more ball levels, just add entries to `BALL_LEVELS` in config.py.
 
 ### Breaking changes (from original 7-level version)
-- Observation space: 110 → 206 → 222 → 224 elements (10 features per ball: added intercept_x; 2 global chain targeting features; 2 reserved slots now n_rising_ratio + closest_approach_time)
+- Observation space: 110 → 206 → 222 → 224 → 704 elements (MAX_OBS_BALLS 16 → 64: agent now sees all balls from full level-6 split tree)
 - Ball levels: 4 → 6 (fixed normalizers now use level-6 values)
 - Ball colors reordered: lvl1=blue, lvl2=yellow, lvl3=green (measured from reference video)
 - Pop physics: chain-depth-aware model (BASE=0.52×h, CHAIN_GAIN=0.22, MASS_EXP=0.3); `ball_chain_depth` array added; clamp raised to 4×

@@ -16,7 +16,7 @@ from config import (
 class BubbleTroubleEnv(gym.Env):
     """Bubble Trouble as a Gymnasium environment.
 
-    Observation: 224-element float32 vector (see config.py for layout).
+    Observation: 704-element float32 vector (see config.py for layout).
     Actions: MultiDiscrete([3, 2]) — move (LEFT/RIGHT/STILL) × shoot (SHOOT/NO_SHOOT).
     """
 
@@ -75,7 +75,7 @@ class BubbleTroubleEnv(gym.Env):
         return np.array([True, True, True, can_fire, True])
 
     def _get_obs(self):
-        """Build the 224-element observation vector."""
+        """Build the 704-element observation vector."""
         obs = np.zeros(OBS_SIZE, dtype=np.float32)
         e = self.engine
         n = e.n_balls

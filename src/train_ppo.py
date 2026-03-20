@@ -18,7 +18,7 @@ Key mechanisms:
 Usage:
   python src/train.py                                      # full 300M steps
   python src/train.py --timesteps 1000000 --n-envs 4       # quick smoke test
-  python src/train.py --resume checkpoints/periodic/ppo_XXX.zip --vecnorm ...
+  python src/train.py --resume checkpoints/ppo/periodic/ppo_XXX.zip --vecnorm ...
 """
 
 import argparse
@@ -232,7 +232,7 @@ def main():
                         choices=["auto", "cpu", "cuda", "mps"],
                         help="Device (default: cpu)")
     parser.add_argument("--log-dir", type=str, default="./logs")
-    parser.add_argument("--checkpoint-dir", type=str, default="./checkpoints")
+    parser.add_argument("--checkpoint-dir", type=str, default="./checkpoints/ppo")
     args = parser.parse_args()
 
     os.makedirs(args.log_dir, exist_ok=True)
@@ -278,14 +278,14 @@ def main():
         EvalCallback(
             eval_env,
             best_model_save_path=os.path.join(args.checkpoint_dir, "best"),
-            log_path=os.path.join(args.log_dir, "eval"),
+            log_path=os.path.join(args.log_dir, "eval_ppo"),
             eval_freq=max(500_000 // n_envs, 1000),
             n_eval_episodes=10,
             deterministic=True,
             verbose=1,
         ),
         CheckpointCallback(
-            save_freq=max(5_000_000 // n_envs, 1000),
+            save_freq=max(20_000_000 // n_envs, 1000),
             save_path=os.path.join(args.checkpoint_dir, "periodic"),
             name_prefix="ppo",
             verbose=1,
