@@ -1,12 +1,21 @@
-gymnasium~=0.26.3
-numpy~=1.26.2
-pygame~=2.5.2
-torch~=2.1.1
-matplotlib~=3.8.0
-ray~=2.9.0
-lz4~=4.3.3
-pyarrow~=14.0.2
-dm_tree~=0.1.8
-pandas~=2.1.4
-opencv-python~=4.9.0.80
-scipy~=1.11.4
+# Python 3.13
+# Core
+gymnasium>=1.0.0
+numpy>=2.0.0
+torch>=2.4.0
+
+# RL
+stable-baselines3>=2.4.0
+sb3-contrib>=2.4.0
+
+# Logging & visualization
+tensorboard>=2.18.0
+matplotlib>=3.9.0
+tqdm>=4.67.0
+rich>=13.0.0
+
+# TensorBoard needs pkg_resources from setuptools<81
+setuptools<81
+
+# Rendering (optional — only needed for evaluate.py with --render)
+pygame-ce>=2.5.0

@@ -135,4 +135,8 @@ Results/
 *.mov
 *.docx
 working_rewards.txt
-
+.idea/
+*.iml
+checkpoints/
+logs/
+game_levels/
