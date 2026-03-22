@@ -11,7 +11,7 @@ avoid invalid shots via the can_fire observation feature and the
 wasted_shot penalty.
 
 Key differences from MaskablePPO:
-  - MlpLstmPolicy: 512×256 MLP + 256-unit LSTM + separate critic LSTM
+  - MlpLstmPolicy: DeepSets extractor + 512×256 MLP + 256-unit LSTM + separate critic LSTM
   - Sequence-aware rollout buffer (preserves hidden states)
   - n_steps=2048: shorter rollouts since recurrent buffer is heavier per step
 
@@ -28,13 +28,16 @@ import torch as th
 
 from sb3_contrib import RecurrentPPO
 from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv, VecNormalize
-from stable_baselines3.common.callbacks import (
-    EvalCallback, CheckpointCallback, CallbackList, BaseCallback
-)
+from stable_baselines3.common.callbacks import EvalCallback, CallbackList
 from stable_baselines3.common.monitor import Monitor
 
 from bubble_env import BubbleTroubleEnv
 from config import RECURRENT_TRAINING as T, RECURRENT_CURRICULUM as CURRICULUM, NUM_LEVELS
+from feature_extractor import BubbleFeatureExtractor
+from callbacks import (
+    BestVecNormalizeCallback, CurriculumCallback, EntropyScheduleCallback,
+    MetricsCallback, VecNormalizeCheckpointCallback,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -64,85 +67,14 @@ def build_env(n_envs: int, start_level: int, max_level: int,
     return VecNormalize(venv, norm_obs=False, norm_reward=True, clip_reward=50.0)
 
 
+N_EVAL_ENVS = 8
+
 def build_eval_env() -> VecNormalize:
-    """Eval env: full sequential game with raw (unnormalized) rewards."""
-    fns = [make_env(0, start_level=1, max_level=NUM_LEVELS,
-                    enable_powerups=True, seed=42)]
-    venv = DummyVecEnv(fns)
+    """Eval env: 8 parallel full-game workers, each with a distinct seed."""
+    fns = [make_env(i, start_level=1, max_level=NUM_LEVELS,
+                    enable_powerups=True, seed=42 + i) for i in range(N_EVAL_ENVS)]
+    venv = SubprocVecEnv(fns)
     return VecNormalize(venv, norm_obs=False, norm_reward=False)
-
-
-# ---------------------------------------------------------------------------
-# Callbacks
-# ---------------------------------------------------------------------------
-
-class CurriculumCallback(BaseCallback):
-    """Advances curriculum phases based on CURRICULUM timestep schedule."""
-
-    def __init__(self, curriculum, verbose: int = 0):
-        super().__init__(verbose)
-        self.curriculum = sorted(curriculum, key=lambda x: x[0])
-        self.current_phase = 0
-
-    def _on_step(self) -> bool:
-        new_phase = self.current_phase
-        for i, (start_ts, *_) in enumerate(self.curriculum):
-            if self.num_timesteps >= start_ts:
-                new_phase = i
-
-        if new_phase != self.current_phase:
-            self.current_phase = new_phase
-            _, min_lvl, max_lvl, powerups = self.curriculum[new_phase]
-            if self.verbose:
-                print(f"[Curriculum] Phase {new_phase}: levels {min_lvl}–{max_lvl}, "
-                      f"powerups={'ON' if powerups else 'OFF'} @ step {self.num_timesteps:,}")
-            env = self.training_env
-            while hasattr(env, "venv"):
-                env = env.venv
-            if hasattr(env, "env_method"):
-                env.env_method("set_curriculum",
-                               start_level=min_lvl,
-                               max_level=max_lvl,
-                               enable_powerups=powerups)
-        return True
-
-
-class EntropyScheduleCallback(BaseCallback):
-    """Linearly decays ent_coef from start → end over the learn() call."""
-
-    def __init__(self, start: float, end: float, total_timesteps: int,
-                 verbose: int = 0):
-        super().__init__(verbose)
-        self.ent_start = start
-        self.ent_end = end
-        self.total = total_timesteps
-        self._step0 = None
-
-    def _on_training_start(self) -> None:
-        self._step0 = self.num_timesteps
-
-    def _on_step(self) -> bool:
-        elapsed = self.num_timesteps - (self._step0 or 0)
-        frac = min(1.0, elapsed / max(1, self.total))
-        self.model.ent_coef = self.ent_start + (self.ent_end - self.ent_start) * frac
-        return True
-
-
-class MetricsCallback(BaseCallback):
-    """Logs per-episode game stats to TensorBoard at episode boundaries."""
-
-    def _on_step(self) -> bool:
-        for info in self.locals.get("infos", []):
-            if "episode" in info:
-                ep = info["episode"]
-                self.logger.record("game/episode_reward", ep["r"])
-                self.logger.record("game/episode_length", ep["l"])
-                self.logger.record("game/levels_cleared", info.get("levels_cleared", 0))
-                self.logger.record("game/highest_level", info.get("highest_level", 1))
-                self.logger.record("game/game_cleared", 1 if info.get("game_cleared") else 0)
-                self.logger.record("game/shots_wasted", info.get("shots_wasted", 0))
-                self.logger.record("game/ceiling_pops", info.get("ceiling_pops", 0))
-        return True
 
 
 # ---------------------------------------------------------------------------
@@ -183,6 +115,13 @@ def build_model(env, device: str, seed: int | None,
         max_grad_norm=T["max_grad_norm"],
         target_kl=T["target_kl"],
         policy_kwargs=dict(
+            features_extractor_class=BubbleFeatureExtractor,
+            features_extractor_kwargs=dict(
+                per_ball_hidden=T["per_ball_hidden"],
+                per_obstacle_hidden=T["per_obstacle_hidden"],
+                context_hidden=T["context_hidden"],
+                context_output=T["context_output"],
+            ),
             net_arch=dict(pi=T["net_arch_pi"], vf=T["net_arch_vf"]),
             activation_fn=th.nn.ReLU,
             lstm_hidden_size=T["lstm_hidden_size"],
@@ -249,8 +188,11 @@ def main():
     print(f"  n_steps={T['n_steps']}  batch={T['batch_size']}  epochs={T['n_epochs']}")
     print(f"  LR: {T['learning_rate_start']:.1e} → {T['learning_rate_end']:.1e}")
     print(f"  entropy: {T['ent_coef_start']} → {T['ent_coef_end']}")
-    print(f"  curriculum: {len(CURRICULUM)} phases")
     print(f"  device={device}")
+    print(f"\n  {'Phase':<6} {'Step':>12} {'Levels':>8} {'Powerups':>9}")
+    print(f"  {'-'*6} {'-'*12} {'-'*8} {'-'*9}")
+    for i, (start_ts, min_l, max_l, pups) in enumerate(CURRICULUM):
+        print(f"  {i:<6} {start_ts:>12,} {f'{min_l}-{max_l}':>8} {'ON' if pups else 'OFF':>9}")
     print(f"{'='*60}\n")
 
     # --- Build env from first curriculum phase ---
@@ -264,7 +206,23 @@ def main():
             env = VecNormalize.load(args.vecnorm, env.venv)
             env.norm_obs = False
             env.clip_reward = 50.0
+        else:
+            print("[WARNING] Resuming without VecNormalize stats — reward normalization will reset")
         model = RecurrentPPO.load(args.resume, env=env, device=device)
+        # Restore curriculum to the correct phase based on saved timestep
+        resume_phase = 0
+        for i, (start_ts, *_) in enumerate(CURRICULUM):
+            if model.num_timesteps >= start_ts:
+                resume_phase = i
+        _, min_lvl, max_lvl, powerups = CURRICULUM[resume_phase]
+        inner_env = env
+        while hasattr(inner_env, "venv"):
+            inner_env = inner_env.venv
+        inner_env.env_method("set_curriculum",
+                             start_level=min_lvl, max_level=max_lvl,
+                             enable_powerups=powerups)
+        print(f"[Resume] Phase {resume_phase}: levels {min_lvl}–{max_lvl}, "
+              f"powerups={'ON' if powerups else 'OFF'} @ step {model.num_timesteps:,}")
     else:
         model = build_model(env, device, args.seed, args.log_dir)
 
@@ -272,24 +230,30 @@ def main():
     ent_cb = EntropyScheduleCallback(
         T["ent_coef_start"], T["ent_coef_end"], total_timesteps)
 
+    eval_cb = EvalCallback(
+        eval_env,
+        best_model_save_path=os.path.join(args.checkpoint_dir, "best"),
+        log_path=os.path.join(args.log_dir, "eval_recurrent"),
+        eval_freq=max(100_000 // n_envs, 1000),
+        n_eval_episodes=N_EVAL_ENVS,
+        deterministic=True,
+        verbose=1,
+    )
     callbacks = CallbackList([
-        EvalCallback(
-            eval_env,
-            best_model_save_path=os.path.join(args.checkpoint_dir, "best"),
-            log_path=os.path.join(args.log_dir, "eval_recurrent"),
-            eval_freq=max(100_000 // n_envs, 1000),
-            n_eval_episodes=10,
-            deterministic=True,
+        eval_cb,
+        BestVecNormalizeCallback(
+            eval_callback=eval_cb,
+            save_path=os.path.join(args.checkpoint_dir, "best"),
             verbose=1,
         ),
-        CheckpointCallback(
-            save_freq=max(5_000_000 // n_envs, 1000),
+        VecNormalizeCheckpointCallback(
+            save_freq=max(25_000_000 // n_envs, 1000),
             save_path=os.path.join(args.checkpoint_dir, "periodic"),
             name_prefix="recurrent_ppo",
             verbose=1,
         ),
         MetricsCallback(),
-        CurriculumCallback(CURRICULUM, verbose=1),
+        CurriculumCallback(CURRICULUM, eval_callback=eval_cb, verbose=1),
         ent_cb,
     ])
 
