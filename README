@@ -1,0 +1,287 @@
+# Bubble Trouble RL — Full PPO Training Pipeline
+
+Complete workflow from human demos through pretraining, RL training, and
+post-training optimization. Each step builds on the previous.
+
+## Prerequisites
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+---
+
+## Phase 1: Demonstration Recording
+
+Record near-perfect human play for behavioral cloning. The scrubber UI lets
+you rewind and retry sections for clean recordings.
+
+```bash
+# Record demos level-by-level
+python src/record_demos.py               # start from level 1
+python src/record_demos.py 5             # start from level 5
+
+# Combine separate session files into one
+python src/combine_demos.py checkpoints/user_warmups/demo_*.npz
+
+# Preview without writing
+python src/combine_demos.py checkpoints/user_warmups/demo_*.npz --dry-run
+```
+
+Output: `checkpoints/user_warmups/demo_TIMESTAMP.npz`
+Format: observations (T,968), actions (T,2), level_ids (T,), rewards (T,)
+
+---
+
+## Phase 2: Behavioral Cloning Pretraining
+
+Train the policy architecture via supervised learning on recorded demos.
+Two-phase: actor BC (weighted cross-entropy) then value function (MC returns).
+
+```bash
+python src/pretrain_bc.py checkpoints/user_warmups/demo_*.npz
+```
+
+Options:
+```bash
+python src/pretrain_bc.py demos/*.npz --max-epochs 200 --lr 5e-4
+python src/pretrain_bc.py demos/*.npz --no-value    # skip value pretraining
+```
+
+Output: `checkpoints/user_warmups/bc_pretrained.zip`
+
+---
+
+## Phase 3: PPO Training
+
+### Option A: MaskablePPO (primary — action-masked, feedforward)
+
+```bash
+# Full run with BC warm start + DAPG demo regularization + foresight rewards
+python src/train_ppo.py \
+    --warmup checkpoints/user_warmups/bc_pretrained.zip \
+    --demo checkpoints/user_warmups/demo_*.npz \
+    --foresight
+
+# Full run from scratch (no demos)
+python src/train_ppo.py
+
+# Quick smoke test
+python src/train_ppo.py --timesteps 100000 --n-envs 4
+
+# Resume from checkpoint
+python src/train_ppo.py \
+    --resume checkpoints/ppo/periodic/ppo_50000000_steps.zip \
+    --vecnorm checkpoints/ppo/periodic/ppo_50000000_steps_vecnorm.pkl
+```
+
+Key flags:
+- `--warmup`: Load BC-pretrained weights. Uses compressed WARMUP_CURRICULUM,
+  10x lower LR, PolicyAnchorCallback to prevent forgetting.
+- `--demo`: Enable DAPG — decaying BC auxiliary loss alongside PPO. Level-
+  stratified sampling matches current curriculum phase.
+- `--foresight`: Simulate 120 frames forward after ball hits to reward shots
+  that produce ceiling pop chains. Only activates on levels 9+.
+- `--n-envs N`: Parallel workers (default: 80). Can exceed core count since
+  workers are mostly blocked on IPC.
+- `--device cpu|cuda|mps`: CPU is fastest for this network size.
+
+### Option B: RecurrentPPO (LSTM — temporal reasoning)
+
+```bash
+# Full run with BC warm start + foresight rewards
+python src/train_recurrent.py \
+    --warmup checkpoints/user_warmups/bc_pretrained.zip \
+    --foresight
+
+# Quick smoke test
+python src/train_recurrent.py --timesteps 100000 --n-envs 4
+```
+
+Note: RecurrentPPO loads only the features extractor from BC (not the full
+policy). No action masking — the LSTM learns to avoid invalid shots via the
+can_fire observation and wasted_shot penalty. No DAPG (LSTM hidden states
+aren't available in demo data).
+
+### Training outputs
+
+```
+checkpoints/ppo/
+  best/best_model.zip                    # best eval reward
+  best/best_model_vecnorm.pkl            # matching VecNormalize stats
+  periodic/ppo_50000000_steps.zip        # periodic snapshots
+  periodic/ppo_50000000_steps_vecnorm.pkl
+  final_model.zip                        # end of training
+  final_model_vecnorm.pkl
+```
+
+### Monitoring
+
+```bash
+tensorboard --logdir ./logs
+```
+
+Key metrics: `game/levels_cleared`, `game/episode_reward`, `game/ceiling_pops`,
+`eval/mean_reward`, `bc_aux/shoot_recall`, `kl_anchor/loss`
+
+---
+
+## Phase 4: Post-Training Optimization
+
+These steps boost performance on hard levels (9-12) using the trained
+checkpoint — no retraining of the base model required.
+
+### 4a. MCTS Inference (search-augmented play)
+
+Run Monte Carlo Tree Search at inference time. The trained policy provides
+action priors; MCTS simulates consequences to find better actions.
+
+```bash
+# Visual evaluation with MCTS
+python src/mcts_play.py checkpoints/ppo/best/best_model.zip
+
+# Headless with more simulations for maximum performance
+python src/mcts_play.py checkpoints/ppo/best/best_model.zip \
+    --no-render --episodes 50 --n-simulations 120 --horizon 180
+
+# With VecNormalize stats
+python src/mcts_play.py model.zip --vec-normalize model_vecnorm.pkl
+```
+
+Options:
+- `--n-simulations N`: MCTS rollouts per decision (default 60, more = better but slower)
+- `--horizon N`: Rollout depth in frames (default 120 = 2 seconds)
+- `--decision-interval N`: Run MCTS every N frames (default 6 = ~10 decisions/sec)
+- `--c-puct F`: Exploration constant (default 2.0)
+
+### 4b. Self-Imitation Learning
+
+Run the agent on hard levels, collect rare successful trajectories, add
+them to the DAPG demo pool for retraining.
+
+```bash
+# Collect successful episodes on levels 9-12
+python src/self_imitate.py checkpoints/ppo/best/best_model.zip \
+    --start-level 9 --episodes 5000
+
+# Use MCTS for higher-quality collection
+python src/self_imitate.py checkpoints/ppo/best/best_model.zip \
+    --start-level 9 --episodes 1000 --mcts --mcts-sims 60
+
+# Lower the success threshold
+python src/self_imitate.py model.zip --min-levels-cleared 1
+```
+
+Output: `checkpoints/self_imitation/self_imitation_L9_TIMESTAMP.npz`
+
+Then retrain with the enriched demo pool:
+```bash
+python src/train_ppo.py \
+    --warmup checkpoints/user_warmups/bc_pretrained.zip \
+    --demo checkpoints/user_warmups/demo_*.npz \
+           checkpoints/self_imitation/self_imitation_*.npz \
+    --foresight
+```
+
+### 4c. GAIL Reward Shaping
+
+Train a discriminator to distinguish expert play from agent play, then use
+it as a dense reward bonus during PPO training.
+
+```bash
+# Step 1: Train discriminator on expert demos for levels 9-12
+python src/gail.py train checkpoints/user_warmups/demo_*.npz \
+    --min-level 9 --epochs 100
+
+# Step 2: Use during training (requires code integration — see gail.py
+# GAILRewardWrapper and GAILCallback for API)
+```
+
+Output: `checkpoints/gail/discriminator.pt`
+
+### 4d. Specialist Composition
+
+Train a separate specialist model for hard levels, compose at inference:
+
+```bash
+# Train specialist on levels 9-12 only
+python src/train_ppo.py \
+    --warmup checkpoints/user_warmups/bc_pretrained.zip \
+    --demo checkpoints/user_warmups/demo_*.npz \
+    --foresight \
+    --checkpoint-dir checkpoints/ppo_specialist
+
+# Evaluate with generalist + specialist composition
+python src/evaluate.py play checkpoints/ppo/best/best_model.zip \
+    --specialist checkpoints/ppo_specialist/best/best_model.zip \
+    --specialist-level 9
+```
+
+---
+
+## Evaluation
+
+```bash
+# Watch agent play (visual)
+python src/evaluate.py play checkpoints/ppo/best/best_model.zip
+
+# Headless stats over many episodes
+python src/evaluate.py play checkpoints/ppo/best/best_model.zip \
+    --no-render --episodes 100
+
+# With VecNormalize stats from training
+python src/evaluate.py play model.zip --vec-normalize model_vecnorm.pkl
+
+# Benchmark raw env speed
+python src/evaluate.py benchmark
+```
+
+---
+
+## Human Play
+
+```bash
+python src/play.py          # start from level 1
+python src/play.py 15       # start from level 15
+```
+
+Controls: arrow keys to move, space to shoot, R to restart, Q to quit.
+
+---
+
+## Recommended Full Pipeline
+
+For best results, run these steps in order:
+
+```bash
+# 1. Record demos across all 12 levels (focus on levels 9-12)
+python src/record_demos.py
+
+# 2. Combine if recorded in multiple sessions
+python src/combine_demos.py checkpoints/user_warmups/demo_*.npz
+
+# 3. BC pretrain
+python src/pretrain_bc.py checkpoints/user_warmups/demo_*.npz
+
+# 4. Train PPO with all augmentations
+python src/train_ppo.py \
+    --warmup checkpoints/user_warmups/bc_pretrained.zip \
+    --demo checkpoints/user_warmups/demo_*.npz \
+    --foresight
+
+# 5. Collect self-imitation data from best checkpoint
+python src/self_imitate.py checkpoints/ppo/best/best_model.zip \
+    --start-level 9 --episodes 5000 --mcts
+
+# 6. Retrain with enriched demos
+python src/train_ppo.py \
+    --warmup checkpoints/user_warmups/bc_pretrained.zip \
+    --demo checkpoints/user_warmups/demo_*.npz \
+           checkpoints/self_imitation/self_imitation_*.npz \
+    --foresight
+
+# 7. Evaluate with MCTS for maximum performance
+python src/mcts_play.py checkpoints/ppo/best/best_model.zip \
+    --no-render --episodes 100 --n-simulations 120
+```

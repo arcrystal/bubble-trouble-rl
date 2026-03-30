@@ -1,7 +1,7 @@
 """Evaluation script: load a trained model and watch/benchmark it play.
 
-Supports both MaskablePPO and RecurrentPPO models. The model type is
-auto-detected from the saved .zip file.
+Supports MaskablePPO and RecurrentPPO models. Auto-detects infinity mode
+from the saved model's observation space shape.
 """
 
 import argparse
@@ -12,6 +12,7 @@ from sb3_contrib.common.wrappers import ActionMasker
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 from stable_baselines3.common.monitor import Monitor
 from bubble_env import BubbleTroubleEnv
+from infinity_env import InfinityModeEnv
 from config import NUM_LEVELS
 
 
@@ -20,38 +21,46 @@ def mask_fn(env):
     return env.action_masks()
 
 
-def _detect_model_class(model_path: str):
-    """Auto-detect whether a saved model is MaskablePPO or RecurrentPPO."""
+def _detect_model_info(model_path: str):
+    """Auto-detect model type from a saved .zip file."""
     import zipfile, json
     zip_path = model_path if model_path.endswith(".zip") else model_path + ".zip"
     with zipfile.ZipFile(zip_path, "r") as zf:
         with zf.open("data") as f:
             data = json.loads(f.read())
     policy = data.get("policy_class", {})
-    # SB3 serializes the class as a dict with __module__ and :serialized: keys
     module = policy.get("__module__", "") if isinstance(policy, dict) else str(policy)
-    if "recurrent" in module.lower():
-        return RecurrentPPO
-    return MaskablePPO
+    is_recurrent = "recurrent" in module.lower()
+    return is_recurrent
 
 
 def evaluate(args):
     """Run evaluation episodes with a trained model."""
-    model_class = _detect_model_class(args.model)
-    is_recurrent = model_class is RecurrentPPO
+    is_recurrent = _detect_model_info(args.model)
+    is_infinity = getattr(args, "infinity", False)
     render_mode = None if args.no_render else "human"
 
-    def make_eval_env():
-        env = BubbleTroubleEnv(
-            render_mode=render_mode,
-            enable_powerups=True,
-            sequential_levels=True,
-            max_level=NUM_LEVELS,
-        )
-        if not is_recurrent:
+    speed = getattr(args, "speed", 1.0)
+
+    if is_infinity:
+        def make_eval_env():
+            env = InfinityModeEnv(render_mode=render_mode, render_speed=speed)
             env = ActionMasker(env, mask_fn)
-        env = Monitor(env)
-        return env
+            env = Monitor(env)
+            return env
+    else:
+        def make_eval_env():
+            env = BubbleTroubleEnv(
+                render_mode=render_mode,
+                enable_powerups=True,
+                sequential_levels=True,
+                max_level=NUM_LEVELS,
+                render_speed=speed,
+            )
+            if not is_recurrent:
+                env = ActionMasker(env, mask_fn)
+            env = Monitor(env)
+            return env
 
     env = DummyVecEnv([make_eval_env])
 
@@ -64,9 +73,11 @@ def evaluate(args):
     else:
         env = VecNormalize(env, norm_obs=False, norm_reward=False)
 
+    model_class = RecurrentPPO if is_recurrent else MaskablePPO
     model = model_class.load(args.model)
     model_name = "RecurrentPPO" if is_recurrent else "MaskablePPO"
-    print(f"Loaded {model_name} model from {args.model}")
+    mode = "infinity" if is_infinity else "regular"
+    print(f"Loaded {model_name} model ({mode} mode) from {args.model}")
 
     total_reward = 0
     total_levels = 0
@@ -85,6 +96,8 @@ def evaluate(args):
         # LSTM state (only used for RecurrentPPO)
         lstm_states = None
         episode_start = np.ones((1,), dtype=bool)
+
+        info_dict = {}
 
         while True:
             if is_recurrent:
@@ -118,19 +131,28 @@ def evaluate(args):
         total_balls_hit += ep_balls_hit
         total_balls_popped += ep_balls_popped
 
-        status = "CLEARED" if info_dict.get("game_cleared") else ("DIED" if not info_dict.get("TimeLimit.truncated", False) else "TIMEOUT")
-        print(f"Episode {episode + 1}/{args.episodes}: "
-              f"reward={episode_reward:.2f}, steps={episode_steps}, "
-              f"levels={ep_levels}, balls_hit={ep_balls_hit}, "
-              f"balls_popped={ep_balls_popped}, status={status}")
+        if is_infinity:
+            elapsed = info_dict.get("elapsed_time", episode_steps / 60.0)
+            mins = int(elapsed) // 60
+            secs = int(elapsed) % 60
+            print(f"Episode {episode + 1}/{args.episodes}: "
+                  f"survived={mins}:{secs:02d}, reward={episode_reward:.2f}, "
+                  f"steps={episode_steps}")
+        else:
+            status = "CLEARED" if info_dict.get("game_cleared") else ("DIED" if not info_dict.get("TimeLimit.truncated", False) else "TIMEOUT")
+            print(f"Episode {episode + 1}/{args.episodes}: "
+                  f"reward={episode_reward:.2f}, steps={episode_steps}, "
+                  f"levels={ep_levels}, balls_hit={ep_balls_hit}, "
+                  f"balls_popped={ep_balls_popped}, status={status}")
 
     n = args.episodes
     print(f"\n--- Summary ({n} episodes) ---")
     print(f"Avg reward:       {total_reward / n:.2f}")
-    print(f"Avg levels:       {total_levels / n:.2f}")
-    print(f"Avg balls hit:    {total_balls_hit / n:.2f}")
-    print(f"Avg balls popped: {total_balls_popped / n:.2f}")
-    print(f"Games cleared:    {games_cleared}/{n}")
+    if not is_infinity:
+        print(f"Avg levels:       {total_levels / n:.2f}")
+        print(f"Avg balls hit:    {total_balls_hit / n:.2f}")
+        print(f"Avg balls popped: {total_balls_popped / n:.2f}")
+        print(f"Games cleared:    {games_cleared}/{n}")
 
     env.close()
 
@@ -171,7 +193,10 @@ def main():
     eval_parser.add_argument("--deterministic", action="store_true", default=True)
     eval_parser.add_argument("--vec-normalize", type=str, default=None,
                              help="Path to vecnormalize.pkl from training")
-
+    eval_parser.add_argument("--speed", type=float, default=1.0,
+                             help="Playback speed multiplier (e.g. 2 for 2x, 5 for 5x)")
+    eval_parser.add_argument("--infinity", action="store_true",
+                             help="Use infinity mode environment")
     # Benchmark subcommand
     bench_parser = subparsers.add_parser("benchmark", help="Benchmark env speed")
     bench_parser.add_argument("--benchmark-steps", type=int, default=100_000)

@@ -315,9 +315,9 @@ LEVEL_DEFS = {
         {"lvl": 2, "x": 0.87, "y": 0.24, "static": True, "bounce": 2.09, "keep_bounce": True},
     ],
     12: [                                                                           # 3 green left + 3 blue right
-        {"lvl": 3, "x": 0.1, "y": 0.45, "static": True, "color":PURPLE},
-        {"lvl": 3, "x": 0.2, "y": 0.65, "static": True, "color":PURPLE},
-        {"lvl": 3, "x": 0.3, "y": 0.70, "static": True, "color":PURPLE},
+        {"lvl": 3, "x": 0.1, "y": 0.75, "static": True, "color":PURPLE},
+        {"lvl": 3, "x": 0.2, "y": 0.75, "static": True, "color":PURPLE},
+        {"lvl": 3, "x": 0.3, "y": 0.75, "static": True, "color":PURPLE},
         {"lvl": 3, "x": 0.7, "y": 0.75, "static": True, "color":BLUEPURPLE},
         {"lvl": 3, "x": 0.8, "y": 0.75, "static": True, "color":BLUEPURPLE},
         {"lvl": 3, "x": 0.9, "y": 0.75, "static": True, "color":BLUEPURPLE},
@@ -345,17 +345,17 @@ LEVEL_BACKGROUNDS = {
 TRAINING = {
     # MaskablePPO with DeepSets feature extractor.
     # Extractor handles ball processing (permutation-invariant); MLP heads are smaller.
-    "n_envs": 128,
+    "n_envs": 80,
     "total_timesteps": 500_000_000,
     "learning_rate_start": 1e-3,
     "learning_rate_end": 1e-6,
-    "n_steps": 8192,           # 16 envs × 8192 = 131K buffer — fits full late-level episodes in one GAE pass
+    "n_steps": 8192,           # 80 envs × 8192 = 655K buffer — fits full late-level episodes in one GAE pass
     "batch_size": 4096,        # More gradient updates per rollout with smaller network
     "n_epochs": 8,             # Smaller network tolerates more passes; target_kl still guards
     "gamma": 0.999,            # ~1000-step effective horizon for ceiling pop chain credit
-    "gae_lambda": 0.95,
+    "gae_lambda": 0.98,        # Extended trace for death credit assignment (50-step effective horizon)
     "clip_range": 0.2,
-    "ent_coef_start": 0.02,    # Decays linearly over full run
+    "ent_coef_start": 0.02,    # Decays linearly; reset to 0.015 on hard-level phases
     "ent_coef_end": 0.001,
     "vf_coef": 0.5,
     "max_grad_norm": 0.5,
@@ -365,29 +365,51 @@ TRAINING = {
     "per_ball_hidden": 64,             # DeepSets per-ball MLP hidden dim
     "per_obstacle_hidden": 32,         # DeepSets per-obstacle MLP hidden dim
     "context_hidden": 64,              # Context MLP hidden dim
-    "context_output": 32,              # Context MLP output dim
+    "context_output": 64,              # Context MLP output dim
 }
 
 CURRICULUM = [
-    # --- Progressive expansion (100M steps) ---
-    (0,             1, 3,  False),   # 20M  — Learn to shoot and dodge
-    (20_000_000,    1, 5,  False),   # 30M — Door wall obstacle (L5)
-    (50_000_000,    3, 8,  False),   # 50M — Opening walls, static balls
-    (100_000_000,    5, 10, False),  # 50M — Level-6 ball, ceiling pop chains
-    (150_000_000,    7, 12, False),  # 50M — All hard levels, forced exposure
-    # --- Full game + hard refresher cycling (325M steps) ---
-    (200_000_000,   1, 12, True),    # 25M — Full sequential game (build end-to-end play)
-    (225_000_000,   5, 12, True),    # 25M — Hard refresher (maintain L5-12 skills)
-    (250_000_000,   1, 12, True),    # 25M — Full game polish
-    (275_000_000,   9, 12, True),    # 25M — Hard refresher (L9-12 focus)
-    (300_000_000,   1, 12, True),    # 25M — Full game polish
-    (325_000_000,   10, 12, True),   # 25M — Hard refresher (L10-12 focus)
-    (350_000_000,   1, 12, True),    # 25M — Full game polish
-    (375_000_000,   11, 12, True),   # 25M — Hard refresher (L11-12 focus)
-    (400_000_000,   1, 12, True),    # 25M — Full game polish
-    (425_000_000,   12, 12, True),   # 25M — Hard refresher (L12 only)
-    (450_000_000,   1, 12, True),    # 50M — Final full game polish
+    # Phase 1: Foundation (0-40M) — internalize basic mechanics
+    (0,             1, 5,  False),    # 40M — Shooting, dodging, ball physics, door wall
+
+    # Phase 2: Complexity (40-100M) — multi-ball chaos, obstacles, time pressure
+    (40_000_000,    3, 8,  False),    # 60M — Opening walls, static balls, lowering ceiling
+
+    # Phase 3: Hard level introduction (100-200M) — 100M steps at high LR
+    (100_000_000,   5, 10, True),     # 30M — First L9-10 exposure with L5-8 scaffold
+    (130_000_000,   7, 12, True),     # 30M — First L11-12 exposure
+    (160_000_000,   9, 12, True),     # 40M — Focused hard-level training
+
+    # Phase 4: Full game integration (200-270M)
+    (200_000_000,   1, 12, True),     # 70M — Full sequential 1-12
+
+    # Phase 5: Hard mastery cycling (270-420M) — alternating hard refreshers + full game
+    (270_000_000,   9, 12, True),     # 30M — Hard refresher (L9-12)
+    (300_000_000,   1, 12, True),     # 20M — Full game
+    (320_000_000,   10, 12, True),    # 30M — Hard refresher (L10-12)
+    (350_000_000,   1, 12, True),     # 20M — Full game
+    (370_000_000,   11, 12, True),    # 30M — Hard refresher (L11-12)
+    (400_000_000,   1, 12, True),     # 20M — Full game
+
+    # Phase 6: Final polish (420-500M)
+    (420_000_000,   12, 12, True),    # 25M — L12 mastery
+    (445_000_000,   1, 12, True),     # 30M — Full game consolidation
+    (475_000_000,   10, 12, True),    # 25M — Final hard push
 ]
+
+# Entropy reset value for hard-level curriculum phases (min_level >= 9)
+ENTROPY_HARD_RESET = 0.015
+
+# Death credit redistribution: distribute penalty across K frames before death
+DEATH_CREDIT_K = 90              # frames to look back from death
+DEATH_CREDIT_PER_STEP = 0.03    # max per-step penalty (linearly increases toward death)
+
+# Self-imitation learning: collect successful hard-level trajectories during training
+SIL_BUFFER_SIZE = 10_000         # max transitions in ring buffer
+SIL_MIN_LEVEL = 9                # only collect from level 9+
+SIL_BC_WEIGHT = 0.05             # auxiliary BC loss weight
+SIL_LR = 1e-5                    # separate optimizer LR
+SIL_ACTIVATE_AT = 500            # min buffer entries before training
 
 # RecurrentPPO (LSTM) training hyperparameters — no action masking available,
 # so the LSTM must learn can_fire from observation context.
@@ -440,8 +462,86 @@ RECURRENT_CURRICULUM = [
     (108_000_000,   1, 12, True),   # 12M — Final full game polish
 ]
 
+# Warmup curriculum for BC-pretrained agents (--warmup flag).
+# Compressed early phases — agent already knows basic levels from demos.
+# Gets to full-game exposure ~50M steps sooner than standard curriculum.
+WARMUP_CURRICULUM = [
+    # --- Compressed expansion (25M steps, 3 phases) ---
+    # Phase 0 starts at L1-8 immediately (BC covers all 12 levels already;
+    # starting wider uses the value pretraining and avoids redundant narrowing).
+    (0,             1, 8,  False),    # 8M  — Start wide: basics + door/opening walls
+    (8_000_000,     5, 10, False),    # 9M  — Push to hard levels
+    (17_000_000,    7, 12, False),    # 8M  — Late-game exposure
+    # --- Full game + densified hard refresher cycling ---
+    # Shorter full-game phases (15M), longer/more focused hard refreshers (20M).
+    # Double-dips on L9-12 to break the performance ceiling.
+    (25_000_000,    1, 12, True),     # 15M — Full sequential game with power-ups
+    (40_000_000,    5, 12, True),     # 20M — Hard refresher (L5-12)
+    (60_000_000,    1, 12, True),     # 15M — Full game polish
+    (75_000_000,    9, 12, True),     # 25M — Hard refresher (L9-12) — extra time on the wall
+    (100_000_000,   1, 12, True),     # 15M — Full game polish
+    (115_000_000,   9, 10, True),     # 20M — Targeted L9-10 focus (the specific plateau)
+    (135_000_000,   1, 12, True),     # 15M — Full game polish
+    (150_000_000,   10, 12, True),    # 20M — Hard refresher (L10-12)
+    (170_000_000,   1, 12, True),     # 15M — Full game polish
+    (185_000_000,   11, 12, True),    # 20M — Hard refresher (L11-12)
+    (205_000_000,   1, 12, True),     # 15M — Full game polish
+    (220_000_000,   9, 12, True),     # 20M — Final hard push (L9-12)
+    (240_000_000,   1, 12, True),     # 15M — Full game polish
+    (255_000_000,   12, 12, True),    # 20M — Hard refresher (L12 only)
+    (275_000_000,   1, 12, True),     # remaining — Final full game polish
+]
+
+# Warmup curriculum for RecurrentPPO with BC warm start.
+RECURRENT_WARMUP_CURRICULUM = [
+    # --- Compressed expansion (15M steps) ---
+    (0,             1, 5,  False),    # 1M  — Quick validation
+    (1_000_000,     3, 8,  False),    # 4M  — Mid-game
+    (5_000_000,     5, 10, False),    # 5M  — Hard levels
+    (10_000_000,    7, 12, False),    # 5M  — Late-game
+    # --- Full game + hard refresher cycling ---
+    (15_000_000,    1, 12, True),     # 8M  — Full game with power-ups
+    (23_000_000,    5, 12, True),     # 8M  — Hard refresher
+    (31_000_000,    1, 12, True),     # 8M  — Full game polish
+    (39_000_000,    9, 12, True),     # 8M  — Hard refresher (L9-12)
+    (47_000_000,    1, 12, True),     # 8M  — Full game polish
+    (55_000_000,    10, 12, True),    # 8M  — Hard refresher (L10-12)
+    (63_000_000,    1, 12, True),     # 8M  — Full game polish
+    (71_000_000,    11, 12, True),    # 8M  — Hard refresher (L11-12)
+    (79_000_000,    1, 12, True),     # 8M  — Full game polish
+    (87_000_000,    12, 12, True),    # 8M  — Hard refresher (L12 only)
+    (95_000_000,    1, 12, True),     # remaining — Final full game polish
+]
 
 
+# ---------------------------------------------------------------------------
+# Infinity Mode Training Hyperparameters
+# ---------------------------------------------------------------------------
+# Spawn schedule, ball colors, bounciness, etc. are in infinity_config.py.
+
+INFINITY_TRAINING = {
+    "total_timesteps":     500_000_000,
+    "n_envs":              64,
+    "n_steps":             8192,
+    "batch_size":          4096,
+    "n_epochs":            8,
+    "gamma":               0.999,
+    "gae_lambda":          0.98,
+    "learning_rate_start": 3e-4,
+    "learning_rate_end":   6e-7,
+    "ent_coef_start":      0.02,
+    "ent_coef_end":        0.003,
+    "clip_range":          0.2,
+    "vf_coef":             0.5,
+    "max_grad_norm":       0.5,
+    "target_kl":           0.015,
+    "per_ball_hidden":     64,
+    "per_obstacle_hidden": 32,
+    "context_hidden":      64,
+    "context_output":      64,
+    "net_arch_pi":         [512, 256],
+    "net_arch_vf":         [512, 256],
+}
 
 
 def compute_ball_properties(level, width, height):

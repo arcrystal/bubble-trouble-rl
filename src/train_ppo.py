@@ -16,28 +16,34 @@ Key mechanisms:
   - DeepSets feature extractor + 512×256 MLP policy/value heads.
 
 Usage:
-  python src/train.py                                      # full 425M steps
-  python src/train.py --timesteps 1000000 --n-envs 4       # quick smoke test
-  python src/train.py --resume checkpoints/ppo/periodic/ppo_XXX.zip --vecnorm ...
+  python src/train_ppo.py                                      # full 500M steps
+  python src/train_ppo.py --timesteps 1000000 --n-envs 4       # quick smoke test
+  python src/train_ppo.py --resume checkpoints/ppo/periodic/ppo_XXX.zip --vecnorm ...
+  python src/train_ppo.py --warmup checkpoints/user_warmups/bc_pretrained.zip \\
+      --demo checkpoints/user_warmups/demo_*.npz               # BC warm start + DAPG
 """
 
 import argparse
+import json
 import os
+import resource
 
 import torch as th
 
 from sb3_contrib import MaskablePPO
 from sb3_contrib.common.wrappers import ActionMasker
 from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv, VecNormalize
-from stable_baselines3.common.callbacks import EvalCallback, CallbackList
+from stable_baselines3.common.callbacks import CallbackList
 from stable_baselines3.common.monitor import Monitor
 
 from bubble_env import BubbleTroubleEnv
-from config import TRAINING as T, CURRICULUM, NUM_LEVELS
+from config import TRAINING as T, CURRICULUM, WARMUP_CURRICULUM, NUM_LEVELS
 from feature_extractor import BubbleFeatureExtractor
 from callbacks import (
-    BestVecNormalizeCallback, CurriculumCallback, EntropyScheduleCallback,
-    MetricsCallback, VecNormalizeCheckpointCallback,
+    BCAuxiliaryCallback, BestVecNormalizeCallback, CurriculumCallback,
+    DeathCreditCallback, EntropyScheduleCallback, MaxRewardEvalCallback,
+    MetricsCallback, PolicyAnchorCallback, SelfImitationCallback,
+    VecNormalizeCheckpointCallback,
 )
 
 
@@ -69,9 +75,10 @@ def make_env(rank: int, start_level: int = 1, max_level: int = NUM_LEVELS,
 def build_env(n_envs: int, start_level: int, max_level: int,
               powerups: bool, seed: int | None) -> VecNormalize:
     """All workers see the same level range."""
-    fns = [make_env(i, start_level, max_level, powerups, seed) for i in range(n_envs)]
-    venv = SubprocVecEnv(fns) if n_envs > 1 else DummyVecEnv(fns)
-    return VecNormalize(venv, norm_obs=False, norm_reward=True, clip_reward=50.0)
+    fns = [make_env(i, start_level, max_level, powerups, seed)
+           for i in range(n_envs)]
+    venv = SubprocVecEnv(fns, start_method="fork") if n_envs > 1 else DummyVecEnv(fns)
+    return VecNormalize(venv, norm_obs=False, norm_reward=True, clip_reward=150.0)
 
 
 N_EVAL_ENVS = 8
@@ -80,7 +87,7 @@ def build_eval_env() -> VecNormalize:
     """Eval env: 8 parallel full-game workers, each with a distinct seed."""
     fns = [make_env(i, start_level=1, max_level=NUM_LEVELS,
                     enable_powerups=True, seed=42 + i) for i in range(N_EVAL_ENVS)]
-    venv = SubprocVecEnv(fns)
+    venv = SubprocVecEnv(fns, start_method="fork")
     return VecNormalize(venv, norm_obs=False, norm_reward=False)
 
 
@@ -102,6 +109,41 @@ def _adjusted_batch_size(n_envs: int) -> int:
     while buffer % batch != 0 and batch > 1:
         batch //= 2
     return batch
+
+
+def _reset_value_head(policy):
+    """Reinitialize value function layers, keeping actor + features extractor.
+
+    BC's value head was trained on z-scored MC returns: (G - mean) / std.
+    VecNormalize normalizes rewards differently: r / sqrt(return_var), no
+    mean subtraction. The scale mismatch causes massive value-loss gradients
+    that corrupt the shared features extractor — worse than random init.
+
+    Uses SB3's default orthogonal init: hidden gain=sqrt(2), output gain=1.
+    """
+    import numpy as np
+    for layer in policy.mlp_extractor.value_net.modules():
+        if isinstance(layer, th.nn.Linear):
+            th.nn.init.orthogonal_(layer.weight, gain=np.sqrt(2))
+            th.nn.init.zeros_(layer.bias)
+    for layer in policy.value_net.modules():
+        if isinstance(layer, th.nn.Linear):
+            th.nn.init.orthogonal_(layer.weight, gain=1.0)
+            th.nn.init.zeros_(layer.bias)
+
+
+def _seed_vecnormalize(model, env, n_steps=2048):
+    """Collect a short rollout with BC policy to calibrate VecNormalize.
+
+    Without seeding, ret_rms.var=1 means the first real PPO rollout has
+    un-scaled rewards, amplifying the advantage estimation noise.
+    """
+    obs = env.reset()
+    for _ in range(n_steps):
+        with th.no_grad():
+            actions, _ = model.predict(obs, deterministic=False)
+        obs, _, _, _ = env.step(actions)
+    env.reset()
 
 
 def build_model(env, device: str, seed: int | None,
@@ -151,10 +193,40 @@ def save(model, env, checkpoint_dir: str, name: str) -> tuple[str, str]:
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _seed_eval_thresholds(eval_cb, best_dir: str) -> None:
+    """Restore best-score thresholds so a resumed run doesn't clobber best_model.
+
+    On a fresh run the eval callback starts with best_mean_reward = -inf, so
+    the very first evaluation always triggers a save regardless of quality.
+    Loading the persisted score prevents that false positive on resume.
+    """
+    score_path = os.path.join(best_dir, "best_score.json")
+    if not os.path.exists(score_path):
+        return
+    with open(score_path) as f:
+        score = json.load(f)
+    eval_cb.best_mean_reward = score["best_mean_reward"]
+    if hasattr(eval_cb, "best_max_reward") and "best_max_reward" in score:
+        eval_cb.best_max_reward = score["best_max_reward"]
+    print(f"[Resume] Seeded eval thresholds from {score_path}: "
+          f"best_mean={score['best_mean_reward']:.2f}"
+          + (f"  best_max={score['best_max_reward']:.2f}"
+             if "best_max_reward" in score else ""))
+
+
+# ---------------------------------------------------------------------------
 # Main training loop
 # ---------------------------------------------------------------------------
 
 def main():
+    # Raise the open-file-descriptor limit to handle many SubprocVecEnv workers.
+    # macOS terminal sessions inherit a low soft limit from the shell.
+    _, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    resource.setrlimit(resource.RLIMIT_NOFILE, (min(hard, 65536), hard))
+
     parser = argparse.ArgumentParser(
         description="Train Bubble Trouble with MaskablePPO (cycling curriculum)"
     )
@@ -166,6 +238,13 @@ def main():
                         help="Path to checkpoint .zip to resume from")
     parser.add_argument("--vecnorm", type=str, default=None,
                         help="VecNormalize stats .pkl path when resuming")
+    parser.add_argument("--warmup", type=str, default=None,
+                        help="Path to BC-pretrained model .zip for warm start")
+    parser.add_argument("--demo", type=str, nargs="+", default=None,
+                        help="Demo .npz files for DAPG auxiliary loss during training "
+                             "(use with --warmup for best results)")
+    parser.add_argument("--lr", type=float, default=None,
+                        help="Override learning rate for this run (constant float, e.g. 3e-5)")
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--device", type=str, default="cpu",
                         choices=["auto", "cpu", "cuda", "mps"],
@@ -181,42 +260,62 @@ def main():
     if device == "auto":
         device = "cuda" if th.cuda.is_available() else "cpu"
 
+    if args.resume and args.warmup:
+        parser.error("--resume and --warmup are mutually exclusive")
+
     total_timesteps = args.timesteps or T["total_timesteps"]
     n_envs = args.n_envs or T["n_envs"]
 
+    # Select curriculum based on warmup mode
+    curriculum = WARMUP_CURRICULUM if args.warmup else CURRICULUM
+
+    lr_start = T["learning_rate_start"]
+    ent_start = T["ent_coef_start"]
+    target_kl = T["target_kl"]
+    if args.warmup:
+        lr_start = T["learning_rate_start"] / 10  # 10x lower for warm-started policy
+        ent_start = 0.005  # lower entropy — agent already has a reasonable policy
+        target_kl = 0.05  # BC policy is peaked → small param changes cause large KL;
+                          # clip_range is the real update guard, target_kl is secondary
+
     print(f"\n{'='*60}")
-    print(f"MaskablePPO — Cycling Curriculum  ({total_timesteps:,} steps, {n_envs} envs)")
-    print(f"  net={T['net_arch_pi']}  gamma={T['gamma']}  target_kl={T['target_kl']}")
+    print(f"MaskablePPO — {'Warmup' if args.warmup else 'Cycling'} Curriculum  "
+          f"({total_timesteps:,} steps, {n_envs} envs)")
+    print(f"  net={T['net_arch_pi']}  gamma={T['gamma']}  target_kl={target_kl}")
     print(f"  n_steps={T['n_steps']}  batch={T['batch_size']}  epochs={T['n_epochs']}")
-    print(f"  LR: {T['learning_rate_start']:.1e} → {T['learning_rate_end']:.1e}")
-    print(f"  entropy: {T['ent_coef_start']} → {T['ent_coef_end']}")
+    print(f"  LR: {lr_start:.1e} → {T['learning_rate_end']:.1e}")
+    print(f"  entropy: {ent_start} → {T['ent_coef_end']}")
     print(f"  device={device}")
     print(f"\n  {'Phase':<6} {'Step':>12} {'Levels':>8} {'Powerups':>9}")
     print(f"  {'-'*6} {'-'*12} {'-'*8} {'-'*9}")
-    for i, (start_ts, min_l, max_l, pups) in enumerate(CURRICULUM):
+    for i, (start_ts, min_l, max_l, pups) in enumerate(curriculum):
         print(f"  {i:<6} {start_ts:>12,} {f'{min_l}-{max_l}':>8} {'ON' if pups else 'OFF':>9}")
     print(f"{'='*60}\n")
 
     # --- Build env from first curriculum phase ---
-    _, min_lvl, max_lvl, powerups = CURRICULUM[0]
+    _, min_lvl, max_lvl, powerups = curriculum[0]
     env = build_env(n_envs, min_lvl, max_lvl, powerups, args.seed)
     eval_env = build_eval_env()
 
+    lr = args.lr if args.lr is not None else linear_schedule(lr_start, T["learning_rate_end"])
+
     if args.resume:
         print(f"Resuming from {args.resume}")
+        if args.lr is not None:
+            print(f"  LR override: {args.lr:.2e} (constant)")
         if args.vecnorm and os.path.exists(args.vecnorm):
             env = VecNormalize.load(args.vecnorm, env.venv)
             env.norm_obs = False
-            env.clip_reward = 50.0
+            env.clip_reward = 150.0
         else:
             print("[WARNING] Resuming without VecNormalize stats — reward normalization will reset")
-        model = MaskablePPO.load(args.resume, env=env, device=device)
+        model = MaskablePPO.load(args.resume, env=env, device=device, learning_rate=lr)
         # Restore curriculum to the correct phase based on saved timestep
         resume_phase = 0
-        for i, (start_ts, *_) in enumerate(CURRICULUM):
+        for i, (start_ts, *_) in enumerate(curriculum):
             if model.num_timesteps >= start_ts:
                 resume_phase = i
-        _, min_lvl, max_lvl, powerups = CURRICULUM[resume_phase]
+        _, min_lvl, max_lvl, powerups = curriculum[resume_phase]
         inner_env = env
         while hasattr(inner_env, "venv"):
             inner_env = inner_env.venv
@@ -225,29 +324,53 @@ def main():
                              enable_powerups=powerups)
         print(f"[Resume] Phase {resume_phase}: levels {min_lvl}–{max_lvl}, "
               f"powerups={'ON' if powerups else 'OFF'} @ step {model.num_timesteps:,}")
+    elif args.warmup:
+        model = build_model(env, device, args.seed, args.log_dir)
+        warmup = MaskablePPO.load(args.warmup, device=device)
+        model.policy.load_state_dict(warmup.policy.state_dict())
+        del warmup
+        # Override LR schedule for warm start (must set lr_schedule too —
+        # SB3 caches the schedule during _setup_model and uses lr_schedule, not learning_rate)
+        warmup_schedule = lr if args.lr is not None else linear_schedule(lr_start, T["learning_rate_end"])
+        model.learning_rate = warmup_schedule
+        model.lr_schedule = warmup_schedule
+        model.ent_coef = ent_start
+        model.target_kl = target_kl
+        # Reset value head: BC value was trained on z-scored MC returns which
+        # don't match VecNormalize's reward scaling. Random-init V≈0 gives
+        # unbiased advantages; miscalibrated V gives biased ones that corrupt
+        # the shared features extractor via large value-loss gradients.
+        _reset_value_head(model.policy)
+        # Seed VecNormalize so ret_rms.var is calibrated before the first
+        # real PPO rollout (prevents wild advantage estimates at step 0).
+        print(f"[Warmup] Loaded BC actor from {args.warmup}, value head reset")
+        print(f"[Warmup] LR={lr_start:.1e}, ent_coef={ent_start}, target_kl={target_kl}")
+        print("[Warmup] Seeding VecNormalize reward statistics...")
+        _seed_vecnormalize(model, env)
+        print("[Warmup] VecNormalize seeded")
     else:
         model = build_model(env, device, args.seed, args.log_dir)
 
     # --- Callbacks ---
-    ent_cb = EntropyScheduleCallback(
-        T["ent_coef_start"], T["ent_coef_end"], total_timesteps)
+    ent_cb = EntropyScheduleCallback(ent_start, T["ent_coef_end"], total_timesteps)
 
-    eval_cb = EvalCallback(
+    eval_cb = MaxRewardEvalCallback(
         eval_env,
         best_model_save_path=os.path.join(args.checkpoint_dir, "best"),
         log_path=os.path.join(args.log_dir, "eval_ppo"),
-        eval_freq=max(1_000_000 // n_envs, 1000),
+        eval_freq=T["n_steps"],  # every rollout
         n_eval_episodes=N_EVAL_ENVS,
         deterministic=True,
-        verbose=1,
-    )
-    callbacks = CallbackList([
-        eval_cb,
-        BestVecNormalizeCallback(
-            eval_callback=eval_cb,
+        callback_on_new_best=BestVecNormalizeCallback(
             save_path=os.path.join(args.checkpoint_dir, "best"),
             verbose=1,
         ),
+        verbose=1,
+    )
+    if args.resume:
+        _seed_eval_thresholds(eval_cb, os.path.join(args.checkpoint_dir, "best"))
+    cb_list = [
+        eval_cb,
         VecNormalizeCheckpointCallback(
             save_freq=max(50_000_000 // n_envs, 1000),
             save_path=os.path.join(args.checkpoint_dir, "periodic"),
@@ -255,9 +378,43 @@ def main():
             verbose=1,
         ),
         MetricsCallback(),
-        CurriculumCallback(CURRICULUM, eval_callback=eval_cb, verbose=1),
+        CurriculumCallback(curriculum, eval_callback=eval_cb,
+                           entropy_callback=ent_cb, verbose=1),
         ent_cb,
-    ])
+        DeathCreditCallback(),
+        SelfImitationCallback(verbose=1),
+    ]
+
+    # KL anchoring: prevent policy drift from BC on the RL state distribution.
+    # Unlike DAPG (which uses demo observations), this operates on rollout data
+    # — no distribution mismatch. Requires --warmup (snapshots the BC policy).
+    if args.warmup:
+        anchor_cb = PolicyAnchorCallback(
+            kl_coef_start=0.5,
+            total_timesteps=total_timesteps,
+            n_steps=8,
+            batch_size=512,
+            lr_ratio=0.5,
+            verbose=1,
+        )
+        cb_list.append(anchor_cb)
+
+    # DAPG: auxiliary BC loss to prevent catastrophic forgetting of demo skills
+    if args.demo:
+        bc_cb = BCAuxiliaryCallback(
+            demo_paths=args.demo,
+            curriculum=curriculum,
+            bc_weight_start=1.0,
+            total_timesteps=total_timesteps,
+            bc_lr_ratio=1.0,
+            n_dapg_steps=16,
+            batch_size=256,
+            verbose=1,
+        )
+        cb_list.append(bc_cb)
+        print(f"[DAPG] BC auxiliary loss enabled with {len(args.demo)} demo pattern(s)")
+
+    callbacks = CallbackList(cb_list)
 
     # --- Train ---
     model.learn(

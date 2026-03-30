@@ -60,7 +60,7 @@ class BubbleTroubleEngine:
     def __init__(self, width=DEFAULT_WIDTH, height=DEFAULT_HEIGHT, fps=DEFAULT_FPS,
                  max_steps=DEFAULT_MAX_STEPS, enable_powerups=True,
                  sequential_levels=True, start_level=1, max_level=NUM_LEVELS,
-                 rng_seed=None):
+                 rng_seed=None, max_balls=None):
         self.width = width
         self.height = height
         self.fps = fps
@@ -107,21 +107,24 @@ class BubbleTroubleEngine:
 
         self.rng = np.random.default_rng(rng_seed)
 
+        # Max balls (configurable for infinity mode)
+        self.max_balls = max_balls if max_balls is not None else MAX_BALLS
+
         # Ball state arrays (preallocated)
-        self.ball_x = np.zeros(MAX_BALLS, dtype=np.float64)
-        self.ball_y = np.zeros(MAX_BALLS, dtype=np.float64)
-        self.ball_xspeed = np.zeros(MAX_BALLS, dtype=np.float64)
-        self.ball_yspeed = np.zeros(MAX_BALLS, dtype=np.float64)
-        self.ball_radius = np.zeros(MAX_BALLS, dtype=np.float64)
-        self.ball_max_yspeed = np.zeros(MAX_BALLS, dtype=np.float64)
-        self.ball_yacc = np.zeros(MAX_BALLS, dtype=np.float64)
-        self.ball_level = np.zeros(MAX_BALLS, dtype=np.int32)
-        self.ball_bounciness = np.ones(MAX_BALLS, dtype=np.float64)
-        self.ball_flags = np.zeros(MAX_BALLS, dtype=np.int32)
-        self.ball_color = np.zeros((MAX_BALLS, 3), dtype=np.uint8)  # RGB color inherited from ancestor
-        self.ball_chain_depth = np.zeros(MAX_BALLS, dtype=np.int32)  # consecutive pops without floor bounce
-        self.ball_inherit_bounciness = np.ones(MAX_BALLS, dtype=bool)  # if False, children get bounce=1.0
-        self.ball_section = np.full(MAX_BALLS, -1, dtype=np.int32)   # ancestry ID (index in level def), -1 = none
+        self.ball_x = np.zeros(self.max_balls, dtype=np.float64)
+        self.ball_y = np.zeros(self.max_balls, dtype=np.float64)
+        self.ball_xspeed = np.zeros(self.max_balls, dtype=np.float64)
+        self.ball_yspeed = np.zeros(self.max_balls, dtype=np.float64)
+        self.ball_radius = np.zeros(self.max_balls, dtype=np.float64)
+        self.ball_max_yspeed = np.zeros(self.max_balls, dtype=np.float64)
+        self.ball_yacc = np.zeros(self.max_balls, dtype=np.float64)
+        self.ball_level = np.zeros(self.max_balls, dtype=np.int32)
+        self.ball_bounciness = np.ones(self.max_balls, dtype=np.float64)
+        self.ball_flags = np.zeros(self.max_balls, dtype=np.int32)
+        self.ball_color = np.zeros((self.max_balls, 3), dtype=np.uint8)  # RGB color inherited from ancestor
+        self.ball_chain_depth = np.zeros(self.max_balls, dtype=np.int32)  # consecutive pops without floor bounce
+        self.ball_inherit_bounciness = np.ones(self.max_balls, dtype=bool)  # if False, children get bounce=1.0
+        self.ball_section = np.full(self.max_balls, -1, dtype=np.int32)   # ancestry ID (index in level def), -1 = none
         self.n_balls = 0
 
         # Obstacle state arrays (preallocated)
@@ -133,6 +136,7 @@ class BubbleTroubleEngine:
         self.obs_timer = np.zeros(MAX_OBSTACLES, dtype=np.float64)  # For opening walls / lowering ceiling
         self.obs_extra = np.zeros(MAX_OBSTACLES, dtype=np.float64)  # Slide direction for OBSTACLE_OPENING
         self.obs_section = np.full(MAX_OBSTACLES, -1, dtype=np.int32)  # ancestry trigger (-1 = position-based)
+        self.obs_agent_passable = np.zeros(MAX_OBSTACLES, dtype=bool)  # agent can walk through if True
         self.n_obstacles = 0
 
         # Effective play area height (may be overridden per level for short maps)
@@ -167,6 +171,7 @@ class BubbleTroubleEngine:
         self.steps = 0
         self.done = False
         self.level_cleared = False
+        self._enable_level_clear = True  # Infinity mode disables this
 
         # Episode tracking counters
         self.shots_fired = 0
@@ -263,6 +268,7 @@ class BubbleTroubleEngine:
         self.obs_timer[:] = 0.0
         self.obs_extra[:] = 0.0
         self.obs_section[:] = -1
+        self.obs_agent_passable[:] = False
         if level_num not in OBSTACLE_DEFS:
             return
         defs = OBSTACLE_DEFS[level_num]
@@ -311,7 +317,7 @@ class BubbleTroubleEngine:
         elif self.max_level <= 18:
             max_ball_level = min(max_ball_level, 5)
 
-        while total_weight < 20 and self.n_balls < MAX_BALLS:
+        while total_weight < 20 and self.n_balls < self.max_balls:
             lvl = self.rng.integers(1, max_ball_level + 1)
             x = self.rng.uniform(0, self.width)
             y = self.rng.uniform(0, self.height * 0.5)
@@ -321,9 +327,9 @@ class BubbleTroubleEngine:
     def _add_ball(self, level, x, y, go_right=True, yspeed=0.0, bounciness=1.0,
                   flags=BALL_FLAG_NORMAL, color=None, chain_depth=0,
                   inherit_bounciness=False, section=-1):
-        """Add a ball to the active arrays."""
-        if self.n_balls >= MAX_BALLS:
-            return
+        """Add a ball to the active arrays. Returns the index, or None if at capacity."""
+        if self.n_balls >= self.max_balls:
+            return None
         i = self.n_balls
         radius, max_yspeed, yacc = self._ball_props[level]
         self.ball_x[i] = x
@@ -343,6 +349,7 @@ class BubbleTroubleEngine:
         self.ball_inherit_bounciness[i] = inherit_bounciness
         self.ball_section[i] = section
         self.n_balls += 1
+        return i
 
     def _finalize_info(self, info):
         """Stamp episode-level cumulative counters onto the info dict."""
@@ -367,6 +374,7 @@ class BubbleTroubleEngine:
 
         self.steps += 1
         self.recent_pops = []
+        self.ceiling_pop_reward_this_step = 0.0
 
         # --- Update agent (MultiDiscrete: [move, shoot]) ---
         move_action = action[0] if hasattr(action, '__len__') else action
@@ -451,6 +459,7 @@ class BubbleTroubleEngine:
                     br = float(self.ball_radius[idx])
                     self.recent_pops.append((bx + br, by + br, br))
                     reward += CEILING_POP_VALUES[lvl]
+                    self.ceiling_pop_reward_this_step += CEILING_POP_VALUES[lvl]
                     self.ceiling_pops += 1
                     self._remove_ball(idx)
                 n = self.n_balls
@@ -487,7 +496,7 @@ class BubbleTroubleEngine:
                 info["powerup_picked"] = True
 
         # --- Check level cleared ---
-        if self.n_balls == 0:
+        if self.n_balls == 0 and self._enable_level_clear:
             level_factor = 1 + (self.current_level - 1) * REWARDS_FINISH_LEVEL_SCALE
             reward += REWARDS_FINISH_LEVEL * level_factor
             # Time bonus: reward faster clears
@@ -653,6 +662,7 @@ class BubbleTroubleEngine:
             self.obs_timer[idx] = self.obs_timer[last]
             self.obs_extra[idx] = self.obs_extra[last]
             self.obs_section[idx] = self.obs_section[last]
+            self.obs_agent_passable[idx] = self.obs_agent_passable[last]
         self.n_obstacles -= 1
 
     def _try_fire_laser(self):
@@ -796,7 +806,7 @@ class BubbleTroubleEngine:
                 base_reward = self._pop_ball_at(hit_idx) * height_factor
                 # Clutter bonus: each lvl-1 ball beyond 2 on screen adds extra value
                 # to clearing this one — incentivises decluttering crowded levels.
-                n_level1 = int(np.sum(self.ball_level[:n] == 1))
+                n_level1 = int(np.sum(self.ball_level[:self.n_balls] == 1))
                 clutter_bonus = REWARDS_CLUTTER_POP * max(0, n_level1 - 2) * height_factor
                 reward += base_reward + clutter_bonus + shot_quality_bonus
                 hit_info["balls_popped"] += 1
@@ -806,7 +816,7 @@ class BubbleTroubleEngine:
                 # Clutter penalty (lvl≥3): discourages splitting big balls when many
                 # smaller balls are already cluttering the screen.
                 if lvl >= 3:
-                    n_small = int(np.sum(self.ball_level[:n] < lvl))
+                    n_small = int(np.sum(self.ball_level[:self.n_balls] < lvl))
                     clutter_penalty = REWARDS_CLUTTER_SPLIT * max(0, n_small - 3)
                 else:
                     clutter_penalty = 0.0
@@ -1054,6 +1064,10 @@ class BubbleTroubleEngine:
             oh = self.obs_h[oi]
             obs_bottom = oy + oh
 
+            # Agent-passable obstacles (infinity mode door gaps)
+            if self.obs_agent_passable[oi]:
+                continue
+
             # Lowering ceiling doesn't block agent horizontally
             if self.obs_type[oi] == OBSTACLE_LOWERING_CEIL:
                 continue
@@ -1123,6 +1137,7 @@ class BubbleTroubleEngine:
             "obstacle_h": self.obs_h[:self.n_obstacles].copy(),
             "obstacle_type": self.obs_type[:self.n_obstacles].copy(),
             "obstacle_timer": self.obs_timer[:self.n_obstacles].copy(),
+            "obstacle_agent_passable": self.obs_agent_passable[:self.n_obstacles].copy(),
             "n_obstacles": self.n_obstacles,
             # Pop effects (renderer-only)
             "recent_pops": list(self.recent_pops),

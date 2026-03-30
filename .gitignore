@@ -140,3 +140,5 @@ working_rewards.txt
 checkpoints/
 logs/
 game_levels/
+*.md
+*.rtf

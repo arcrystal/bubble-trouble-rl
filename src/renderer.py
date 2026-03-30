@@ -30,6 +30,7 @@ LASER_GRID_SPACING = 18   # pixels between perpendicular grid lines
 LASER_GRID_HALF_W  = 6    # half-width of the grid background and crosshairs
 LASER_GRID_BG      = (60, 60, 60, 100)  # faint grey background (alpha blended)
 
+
 # HUD layout
 HUD_HEIGHT = 28  # Bottom score bar height
 
@@ -37,10 +38,11 @@ HUD_HEIGHT = 28  # Bottom score bar height
 class PygameRenderer:
     """Renders engine state using pygame."""
 
-    def __init__(self, width, height, fps=DEFAULT_FPS):
+    def __init__(self, width, height, fps=DEFAULT_FPS, speed=1.0):
         self.width = width
         self.height = height
         self.fps = fps
+        self.speed = speed
 
         pygame.init()
         pygame.display.init()
@@ -51,6 +53,25 @@ class PygameRenderer:
         self.font = pygame.font.Font(None, 22)
         self.big_font = pygame.font.Font(None, 36)
         self.hud_font = pygame.font.Font(None, 20)
+
+        # Pre-allocated draw surface (reused every frame)
+        self._surface = pygame.Surface((width, height + HUD_HEIGHT))
+
+        # Pre-rendered static HUD text
+        self._p1_txt = self.hud_font.render("PLAYER 1", True, WHITE)
+        self._p2_txt = self.hud_font.render("PLAYER 2", True, WHITE)
+
+        # Pre-rendered "Get ready" overlay
+        self._ready_overlay = pygame.Surface((280, 50), pygame.SRCALPHA)
+        self._ready_overlay.fill((0, 0, 0, 160))
+        self._ready_txt = self.big_font.render("Get ready", True, YELLOW)
+
+        # Pre-allocated grid laser surface (reused when a stuck laser is active)
+        self._grid_surf = pygame.Surface(
+            (LASER_GRID_HALF_W * 2 + 1, height + 1), pygame.SRCALPHA)
+
+        # Cached HUD text (re-rendered only when the value changes)
+        self._cached_hud = {}  # key → (value, surface)
 
         # Pop effect state: list of (x, y, radius, frames_remaining)
         self._pop_effects = []
@@ -65,13 +86,19 @@ class PygameRenderer:
         except (pygame.error, FileNotFoundError):
             self.agent_sprites = None
 
+        # Pre-scale agent sprites to final dimensions
+        if self.agent_sprites:
+            self._scaled_sprites = {}
+        else:
+            self._scaled_sprites = None
+
     def render(self, state):
         """Render the game state to the display window."""
         surface = self._draw(state)
         self.window.blit(surface, (0, 0))
         pygame.event.pump()
         pygame.display.update()
-        self.clock.tick(self.fps)
+        self.clock.tick(int(self.fps * self.speed))
 
     def render_to_array(self, state):
         """Render to a numpy RGB array."""
@@ -80,10 +107,18 @@ class PygameRenderer:
             np.array(pygame.surfarray.pixels3d(surface)), axes=(1, 0, 2)
         )
 
+    def _hud_text(self, key, text, font, color):
+        """Return a cached font surface, re-rendering only when text changes."""
+        cached = self._cached_hud.get(key)
+        if cached is not None and cached[0] == text:
+            return cached[1]
+        surf = font.render(text, True, color)
+        self._cached_hud[key] = (text, surf)
+        return surf
+
     def _draw(self, state):
         """Draw all game elements to a surface."""
-        total_height = self.height + HUD_HEIGHT
-        surface = pygame.Surface((self.width, total_height))
+        surface = self._surface
 
         # Per-level background
         level = state.get("current_level", 1)
@@ -146,8 +181,11 @@ class PygameRenderer:
                 top_y = int(eff_h - ll)
                 if laser_stuck[i] and ll > 0:
                     # Stuck grid laser: normal white line while travelling,
-                    # grid pattern once it reaches the ceiling
-                    grid_surf = pygame.Surface((LASER_GRID_HALF_W * 2 + 1, int(ll) + 1), pygame.SRCALPHA)
+                    # grid pattern once it reaches the ceiling.
+                    # Use a subsurface of the pre-allocated grid surface.
+                    grid_h = int(ll) + 1
+                    grid_w = LASER_GRID_HALF_W * 2 + 1
+                    grid_surf = self._grid_surf.subsurface((0, 0, grid_w, grid_h))
                     grid_surf.fill((60, 60, 60, 80))
                     # Crosshairs at regular intervals (measured from ceiling downward)
                     for gy in range(0, int(ll), LASER_GRID_SPACING):
@@ -167,6 +205,11 @@ class PygameRenderer:
         agent_rect = pygame.Rect(ax, int(eff_h) - ah, aw, ah)
 
         if self.agent_sprites:
+            # Cache scaled sprites on first use (dimensions are fixed)
+            if not self._scaled_sprites:
+                for sname in ("left", "still", "right"):
+                    self._scaled_sprites[sname] = pygame.transform.scale(
+                        self.agent_sprites[sname], (aw, ah))
             if self._agent_prev_x is not None and ax < self._agent_prev_x - 0.1:
                 sprite_name = "left"
             elif self._agent_prev_x is not None and ax > self._agent_prev_x + 0.1:
@@ -174,8 +217,7 @@ class PygameRenderer:
             else:
                 sprite_name = "still"
             self._agent_prev_x = ax
-            scaled = pygame.transform.scale(self.agent_sprites[sprite_name], (aw, ah))
-            surface.blit(scaled, agent_rect)
+            surface.blit(self._scaled_sprites[sprite_name], agent_rect)
         else:
             pygame.draw.rect(surface, WHITE, agent_rect)
 
@@ -244,32 +286,56 @@ class PygameRenderer:
                 remaining.append((px, py, pr, frames - 1))
         self._pop_effects = remaining
 
-        # --- Timer bar (at bottom of play area, above HUD) ---
-        if state["max_steps"] > 0:
-            time_remaining = max(0, state["max_steps"] - state["steps"])
-            ratio = time_remaining / state["max_steps"]
+        is_infinity = state.get("infinity_mode", False)
+
+        if is_infinity:
+            # --- Infinity: difficulty bar (at bottom of play area) ---
+            difficulty = state.get("difficulty", 0.0)
             bar_y = self.height - 4
             bar_width = self.width
             pygame.draw.rect(surface, DARK_GRAY, (0, bar_y, bar_width, 4))
-            bar_color = RED
-            pygame.draw.rect(surface, bar_color, (0, bar_y, int(bar_width * ratio), 4))
+            # Color ramps from green → yellow → red as difficulty increases
+            r = int(min(255, 510 * difficulty))
+            g = int(min(255, 510 * (1.0 - difficulty)))
+            pygame.draw.rect(surface, (r, g, 0), (0, bar_y, int(bar_width * difficulty), 4))
 
-        # --- HUD score bar (bottom strip) ---
-        hud_y = self.height
-        pygame.draw.rect(surface, BLACK, (0, hud_y, self.width, HUD_HEIGHT))
+            # --- Infinity HUD ---
+            hud_y = self.height
+            pygame.draw.rect(surface, BLACK, (0, hud_y, self.width, HUD_HEIGHT))
 
-        # Player 1 label (left)
-        p1_txt = self.hud_font.render("PLAYER 1", True, WHITE)
-        surface.blit(p1_txt, (8, hud_y + 6))
+            # Survival time (left)
+            elapsed = state.get("elapsed_time", 0.0)
+            mins = int(elapsed) // 60
+            secs = int(elapsed) % 60
+            time_txt = self._hud_text("inf_time", f"TIME  {mins}:{secs:02d}", self.hud_font, WHITE)
+            surface.blit(time_txt, (8, hud_y + 6))
 
-        # Level (center, red)
-        level_txt = self.hud_font.render(f"LEVEL {level}", True, RED)
-        level_rect = level_txt.get_rect(center=(self.width // 2, hud_y + HUD_HEIGHT // 2))
-        surface.blit(level_txt, level_rect)
+            # Ball count (right)
+            n_balls = state.get("n_balls", 0)
+            balls_txt = self._hud_text("inf_balls", f"BALLS  {n_balls}", self.hud_font, WHITE)
+            surface.blit(balls_txt, (self.width - balls_txt.get_width() - 8, hud_y + 6))
+        else:
+            # --- Regular mode: timer bar ---
+            if state["max_steps"] > 0:
+                time_remaining = max(0, state["max_steps"] - state["steps"])
+                ratio = time_remaining / state["max_steps"]
+                bar_y = self.height - 4
+                bar_width = self.width
+                pygame.draw.rect(surface, DARK_GRAY, (0, bar_y, bar_width, 4))
+                bar_color = RED
+                pygame.draw.rect(surface, bar_color, (0, bar_y, int(bar_width * ratio), 4))
 
-        # Player 2 label (right)
-        p2_txt = self.hud_font.render("PLAYER 2", True, WHITE)
-        surface.blit(p2_txt, (self.width - p2_txt.get_width() - 8, hud_y + 6))
+            # --- Regular HUD score bar ---
+            hud_y = self.height
+            pygame.draw.rect(surface, BLACK, (0, hud_y, self.width, HUD_HEIGHT))
+
+            surface.blit(self._p1_txt, (8, hud_y + 6))
+
+            level_txt = self._hud_text("reg_level", f"LEVEL {level}", self.hud_font, RED)
+            level_rect = level_txt.get_rect(center=(self.width // 2, hud_y + HUD_HEIGHT // 2))
+            surface.blit(level_txt, level_rect)
+
+            surface.blit(self._p2_txt, (self.width - self._p2_txt.get_width() - 8, hud_y + 6))
 
         # Active power-up indicators (top right of play area)
         indicators = []
@@ -281,19 +347,16 @@ class PygameRenderer:
                 indicators.append((f"Grid {t:.1f}s", CYAN))
 
         for i, (label, color) in enumerate(indicators):
-            txt = self.font.render(label, True, color)
+            txt = self._hud_text(f"indicator_{i}", label, self.font, color)
             surface.blit(txt, (self.width - 80, 5 + i * 18))
 
         # --- "Get ready" splash ---
         if steps < 90:
-            overlay = pygame.Surface((280, 50), pygame.SRCALPHA)
-            overlay.fill((0, 0, 0, 160))
             ox = (self.width - 280) // 2
             oy = (self.height - 50) // 2
-            surface.blit(overlay, (ox, oy))
-            ready_txt = self.big_font.render("Get ready", True, YELLOW)
-            ready_rect = ready_txt.get_rect(center=(self.width // 2, self.height // 2))
-            surface.blit(ready_txt, ready_rect)
+            surface.blit(self._ready_overlay, (ox, oy))
+            ready_rect = self._ready_txt.get_rect(center=(self.width // 2, self.height // 2))
+            surface.blit(self._ready_txt, ready_rect)
 
         return surface
 

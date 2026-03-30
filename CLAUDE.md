@@ -33,6 +33,16 @@ python src/train_recurrent.py                                    # full 300M-ste
 python src/train_recurrent.py --timesteps 100000 --n-envs 4      # quick smoke test
 python src/train_recurrent.py --resume checkpoints/recurrent/periodic/recurrent_ppo_XXX.zip --vecnorm ...
 
+# Human demo recording (for BC pretraining)
+python src/record_demos.py              # record from level 1
+python src/record_demos.py 5            # record from level 5
+python src/combine_demos.py checkpoints/user_warmups/demo_*.npz  # merge demo files
+
+# BC pretraining → PPO warm start → DAPG fine-tuning
+python src/pretrain_bc.py checkpoints/user_warmups/demo_*.npz
+python src/train_ppo.py --warmup checkpoints/user_warmups/bc_pretrained.zip \
+    --demo checkpoints/user_warmups/demo_*.npz
+
 # Evaluate trained agent
 python src/evaluate.py play checkpoints/ppo/best/best_model.zip         # visual
 python src/evaluate.py play checkpoints/ppo/best/best_model.zip --no-render  # headless stats
@@ -72,8 +82,8 @@ Key sections:
 - `LOWERING_CEIL_TARGET_RATIO = 0.55`, `LOWERING_CEIL_SPEED_RATIO = 0.04` — ceiling descent config
 - `LEVEL_HEIGHT_OVERRIDE` — per-level play area height overrides for short maps (level 7: 70%)
 - `MAX_OBSTACLES = 8`, `MAX_BALLS = 64`
-- `TRAINING` — MaskablePPO hyperparameters (n_envs=128, n_steps=8192, batch_size=4096, n_epochs=12, 3-path DeepSets extractor (288-dim) + 512×256 MLP, gamma=0.999, 500M total_timesteps)
-- `RECURRENT_TRAINING` — RecurrentPPO hyperparameters (n_envs=64, n_steps=2048, 3-path DeepSets extractor (288-dim) + 256×128 MLP + 128-unit LSTM, gamma=0.999, 120M total_timesteps)
+- `TRAINING` — MaskablePPO hyperparameters (n_envs=80, n_steps=8192, batch_size=4096, n_epochs=8, 3-path DeepSets extractor (320-dim, context_output=64) + 512×256 MLP, gamma=0.999, 500M total_timesteps)
+- `RECURRENT_TRAINING` — RecurrentPPO hyperparameters (n_envs=64, n_steps=2048, 3-path DeepSets extractor (288-dim, context_output=32) + 256×128 MLP + 128-unit LSTM, gamma=0.999, 120M total_timesteps)
 - `CURRICULUM` — 16 phases: `(start_timestep, min_level, max_level, powerups_enabled)` — progressive level expansion + hard refresher cycling
 - `LEVEL_BACKGROUNDS` — per-level RGB background colors for renderer
 - `compute_ball_properties(level, width, height)` — derives radius, max_yspeed, yacc from kinematic equations
@@ -130,11 +140,11 @@ Three collision systems:
 
 Three-path DeepSets feature extractor (`BaseFeaturesExtractor` subclass). Processes balls and obstacles through separate permutation-invariant paths, with a dedicated scalar context MLP. ~10K parameters.
 
-**Architecture** (3 paths → 288-dim output):
+**Architecture** (3 paths; output dim varies by config):
 1. **Ball path** (896 → 192 dims): Split flat obs into ball features (64 × 14), reshape feature-major → ball-major. Per-ball MLP (shared weights): 14 → 64 → 64 (ReLU). Mask inactive balls (is_active == 0). Pool: concat(sum, max, mean) → 192-dim ball summary. Mean pooling captures "average threat level" that sum/max alone cannot.
 2. **Obstacle path** (48 → 64 dims): Split obstacle features (8 × 6), per-obstacle MLP (shared): 6 → 32 → 32 (ReLU). Mask inactive obstacles (width > threshold). Pool: concat(sum, max) → 64-dim obstacle summary.
-3. **Scalar context path** (24 → 32 dims): Agent + global + powerup features through 2-layer MLP: 24 → 64 → 32 (ReLU). Deeper than previous single-layer to learn interactions (e.g., laser_grid + chain quality).
-4. Output: concat(ball_192, obstacle_64, context_32) = 288 features
+3. **Scalar context path** (24 → context_output dims): Agent + global + powerup features through 2-layer MLP: 24 → 64 → context_output (ReLU). Deeper than previous single-layer to learn interactions (e.g., laser_grid + chain quality).
+4. Output: concat(ball_192, obstacle_64, context_output) = **320 features for MaskablePPO** (context_output=64) / **288 features for RecurrentPPO** (context_output=32)
 
 **Why DeepSets over Attention**: Attention is ~25× slower than MLP on CPU due to O(n²) scaling. DeepSets is only ~1.3× slower and achieves the same permutation invariance. Sum pooling captures aggregate state; max pooling captures extremes (biggest immediate threat); mean pooling captures typical state.
 
@@ -264,6 +274,28 @@ Keyboard-playable game using the engine + renderer. Arrow keys to move, space to
 
 Two subcommands: `play` (load model, run episodes, print stats) and `benchmark` (random actions, measure steps/sec).
 
+### Human Demo Pipeline — `record_demos.py` → `pretrain_bc.py` → `train_ppo.py --warmup --demo`
+
+**Full workflow** for using human gameplay to accelerate RL training:
+
+1. **Record**: `python src/record_demos.py` — play levels with interactive timeline scrubber. Deep-copies engine every frame for mid-level rewind. Saves observations, actions, level_ids, and rewards.
+
+2. **Combine** (optional): `python src/combine_demos.py checkpoints/user_warmups/demo_*.npz` — merge demo files from separate recording sessions.
+
+3. **BC Pretrain**: `python src/pretrain_bc.py checkpoints/user_warmups/demo_*.npz` — two-phase training:
+   - Phase 1 (Actor): Weighted CE loss (inverse-frequency shoot weight × 3x multiplier), cosine annealing LR, gradient clipping, observation noise augmentation (std=0.02), label smoothing, AdamW (wd=1e-4), 90/10 train/val split with early stopping.
+   - Phase 2 (Value): MC returns from demo rewards, MSE regression with frozen features extractor.
+
+4. **PPO Fine-tune with DAPG**: `python src/train_ppo.py --warmup bc_pretrained.zip --demo demo_*.npz`
+   - `--warmup` loads BC-pretrained weights, starts LR 10x lower (1e-4), entropy at 0.005, uses compressed `WARMUP_CURRICULUM`.
+   - `--demo` enables DAPG (Demo Augmented Policy Gradient): a `BCAuxiliaryCallback` runs a decaying BC auxiliary loss after each rollout, preventing catastrophic forgetting of demo-learned skills. BC weight decays linearly from 1.0 to 0 over total timesteps. Uses a separate small-LR optimizer (1e-5) so BC updates don't interfere with PPO's Adam momentum.
+
+**Key design decisions**:
+- Shoot actions are ~1.8% of demo frames → inverse-frequency weighting + 3x loss multiplier ensures the model learns shooting timing, not just movement.
+- Value function starts random without pretraining → MC returns from demo rewards give PPO a reasonable value baseline, preventing wild advantage estimates on first rollouts.
+- DAPG is MaskablePPO-only. RecurrentPPO's LSTM requires hidden states not available in demo data; only features_extractor transfer is supported.
+- Demo format includes rewards for value pretraining. Old demos without rewards still work — value pretraining is skipped gracefully.
+
 ## 12 Levels
 
 Levels 1-12 are measured from the reference video (Bubble Struggle 2: Rebubbled).
@@ -295,7 +327,7 @@ Individual level completion videos from the real Bubble Struggle 2: Rebubbled ga
 |------|----------|---------------|
 | `level01.mp4` | 9s | 1x yellow ball (lvl 2), ~15% from left, mid-height. Blue bg. No obstacles. |
 | `level02.mp4` | 13s | 1x green ball (lvl 3), ~25% from left. Red/pink gradient bg. No obstacles. |
-| `level03.mp4` | 18s | 1x red ball (lvl 5), ~20% from left, near top. Rainbow gradient bg. No obstacles. |
+| `level03.mp4` | 18s | 1x red ball (lvl 4), ~20% from left, near top. Rainbow gradient bg. No obstacles. |
 | `level04.mp4` | 19s | 2x orange balls (lvl 4), ~20% left + ~80% right, mid-height. Dark brown/green bg. |
 | `level05.mp4` | 38s | 1x yellow (lvl 2) left + 1x green (lvl 3) right. Center door wall (solid top ~75%, door bottom ~25%). Pink/blue split bg. Door opens when left ball fully popped → agent walks through. Balls blocked by door even when open. |
 | `level06.mp4` | 15s | 8x tiny blue balls (lvl 1) in a row near floor. Lowering ceiling (purple zigzag) descends from top. Multicolor/warm bg. Short map visible (reduced play area height). |
@@ -435,7 +467,7 @@ All ball level references use `MAX_BALL_LEVEL` from config, never hardcoded numb
 - DeepSets feature extractor: permutation-invariant ball processing replaces distance-sorted ball slots
 - Observation restructured: n_rising_ratio and closest_approach_time moved from powerup to global section (OBS_GLOBAL=13, OBS_POWERUP=5)
 - Peak height for falling balls: now predicts next-bounce apex instead of returning floor height
-- Network: 1024×512×256 MLP → 3-path DeepSets extractor (288-dim output: ball sum+max+mean 192 + obstacle sum+max 64 + context 32) + 512×256 MLP
+- Network: 1024×512×256 MLP → 3-path DeepSets extractor + 512×256 MLP. PPO extractor: 320-dim (192 ball + 64 obstacle + 64 context). RecurrentPPO extractor: 288-dim (192 ball + 64 obstacle + 32 context)
 - Curriculum: expanded to 16 phases with progressive hard refresher cycling
 - game_over_scale: 0.3 → 0.5 (late-game deaths more punishing)
 - All previously trained models are incompatible

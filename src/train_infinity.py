@@ -1,24 +1,15 @@
-"""Bubble Trouble RL — RecurrentPPO (LSTM) with cycling curriculum.
+"""Bubble Trouble RL — MaskablePPO for Infinity Mode (survival).
 
-Same curriculum structure as train_ppo.py but uses an LSTM policy for
-temporal reasoning. The LSTM learns multi-step strategies natively:
-  - Position → wait for ball to rise → shoot for ceiling pop chain
-  - Track laser cooldown state across frames
-  - Learn level-specific dodge/attack patterns over time
+Trains a MaskablePPO agent on InfinityModeEnv with action masking. No
+curriculum — difficulty ramps naturally via the engine's time-based spawning.
 
-No action masking is available for RecurrentPPO. The LSTM learns to
-avoid invalid shots via the can_fire observation feature and the
-wasted_shot penalty.
-
-Key differences from MaskablePPO:
-  - MlpLstmPolicy: DeepSets extractor + 512×256 MLP + 256-unit LSTM + separate critic LSTM
-  - Sequence-aware rollout buffer (preserves hidden states)
-  - n_steps=2048: shorter rollouts since recurrent buffer is heavier per step
+Reward: full base engine reward function (same as regular mode for model interchangeability).
 
 Usage:
-  python src/train_recurrent.py                                  # full 300M steps
-  python src/train_recurrent.py --timesteps 1000000 --n-envs 4   # quick smoke test
-  python src/train_recurrent.py --resume checkpoints/recurrent/final_model.zip --vecnorm ...
+  python src/train_infinity.py                                    # full run
+  python src/train_infinity.py --timesteps 1000000 --n-envs 4     # quick smoke test
+  python src/train_infinity.py --resume checkpoints/infinity/periodic/infinity_XXX.zip \
+      --vecnorm checkpoints/infinity/periodic/infinity_XXX_vecnorm.pkl
 """
 
 import argparse
@@ -28,17 +19,18 @@ import resource
 
 import torch as th
 
-from sb3_contrib import RecurrentPPO
+from sb3_contrib import MaskablePPO
+from sb3_contrib.common.wrappers import ActionMasker
 from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv, VecNormalize
-from stable_baselines3.common.callbacks import EvalCallback, CallbackList
+from stable_baselines3.common.callbacks import CallbackList
 from stable_baselines3.common.monitor import Monitor
 
-from bubble_env import BubbleTroubleEnv
-from config import (RECURRENT_TRAINING as T, RECURRENT_CURRICULUM as CURRICULUM,
-                    RECURRENT_WARMUP_CURRICULUM as WARMUP_CURRICULUM, NUM_LEVELS)
+from infinity_env import InfinityModeEnv
+from config import INFINITY_TRAINING as T
 from feature_extractor import BubbleFeatureExtractor
+from stable_baselines3.common.callbacks import EvalCallback
 from callbacks import (
-    BestVecNormalizeCallback, CurriculumCallback, EntropyScheduleCallback,
+    BestVecNormalizeCallback, EntropyScheduleCallback,
     MetricsCallback, VecNormalizeCheckpointCallback,
 )
 
@@ -47,26 +39,22 @@ from callbacks import (
 # Environment factories
 # ---------------------------------------------------------------------------
 
-def make_env(rank: int, start_level: int = 1, max_level: int = NUM_LEVELS,
-             enable_powerups: bool = False, seed: int | None = None):
+def _mask_fn(env):
+    return env.action_masks()
+
+
+def make_env(rank: int, seed: int | None = None):
     def _init():
-        env = BubbleTroubleEnv(
-            start_level=start_level,
-            max_level=max_level,
-            enable_powerups=enable_powerups,
-            sequential_levels=True,
-        )
+        env = InfinityModeEnv(seed=None)  # random seed each episode for training
+        env = ActionMasker(env, _mask_fn)
         env = Monitor(env)
         env.reset(seed=(seed + rank) if seed is not None else None)
         return env
     return _init
 
 
-def build_env(n_envs: int, start_level: int, max_level: int,
-              powerups: bool, seed: int | None) -> VecNormalize:
-    """All workers see the same level range."""
-    fns = [make_env(i, start_level, max_level, powerups, seed)
-           for i in range(n_envs)]
+def build_env(n_envs: int, seed: int | None) -> VecNormalize:
+    fns = [make_env(i, seed) for i in range(n_envs)]
     venv = SubprocVecEnv(fns, start_method="fork") if n_envs > 1 else DummyVecEnv(fns)
     return VecNormalize(venv, norm_obs=False, norm_reward=True, clip_reward=150.0)
 
@@ -74,9 +62,17 @@ def build_env(n_envs: int, start_level: int, max_level: int,
 N_EVAL_ENVS = 8
 
 def build_eval_env() -> VecNormalize:
-    """Eval env: 8 parallel full-game workers, each with a distinct seed."""
-    fns = [make_env(i, start_level=1, max_level=NUM_LEVELS,
-                    enable_powerups=True, seed=42 + i) for i in range(N_EVAL_ENVS)]
+    """Eval env: 8 parallel workers with fixed seeds for reproducible evaluation."""
+    def _make_eval(rank):
+        def _init():
+            env = InfinityModeEnv(seed=42 + rank)
+            env = ActionMasker(env, _mask_fn)
+            env = Monitor(env)
+            env.reset()
+            return env
+        return _init
+
+    fns = [_make_eval(i) for i in range(N_EVAL_ENVS)]
     venv = SubprocVecEnv(fns, start_method="fork")
     return VecNormalize(venv, norm_obs=False, norm_reward=False)
 
@@ -86,14 +82,12 @@ def build_eval_env() -> VecNormalize:
 # ---------------------------------------------------------------------------
 
 def linear_schedule(start: float, end: float):
-    """Linear interpolation: start at progress_remaining=1, end at 0."""
     def schedule(progress_remaining: float) -> float:
         return end + (start - end) * progress_remaining
     return schedule
 
 
 def _adjusted_batch_size(n_envs: int) -> int:
-    """Ensure batch_size divides evenly into n_envs * n_steps."""
     buffer = n_envs * T["n_steps"]
     batch = min(T["batch_size"], buffer)
     while buffer % batch != 0 and batch > 1:
@@ -101,11 +95,24 @@ def _adjusted_batch_size(n_envs: int) -> int:
     return batch
 
 
+def _reset_value_head(policy):
+    """Reinitialize value function layers, keeping actor + features extractor."""
+    import numpy as np
+    for layer in policy.mlp_extractor.value_net.modules():
+        if isinstance(layer, th.nn.Linear):
+            th.nn.init.orthogonal_(layer.weight, gain=np.sqrt(2))
+            th.nn.init.zeros_(layer.bias)
+    for layer in policy.value_net.modules():
+        if isinstance(layer, th.nn.Linear):
+            th.nn.init.orthogonal_(layer.weight, gain=1.0)
+            th.nn.init.zeros_(layer.bias)
+
+
 def build_model(env, device: str, seed: int | None,
-                log_dir: str) -> RecurrentPPO:
+                log_dir: str) -> MaskablePPO:
     n_envs = env.num_envs
-    return RecurrentPPO(
-        policy="MlpLstmPolicy",
+    return MaskablePPO(
+        policy="MlpPolicy",
         env=env,
         learning_rate=linear_schedule(T["learning_rate_start"], T["learning_rate_end"]),
         n_steps=T["n_steps"],
@@ -128,10 +135,6 @@ def build_model(env, device: str, seed: int | None,
             ),
             net_arch=dict(pi=T["net_arch_pi"], vf=T["net_arch_vf"]),
             activation_fn=th.nn.ReLU,
-            lstm_hidden_size=T["lstm_hidden_size"],
-            n_lstm_layers=T["n_lstm_layers"],
-            shared_lstm=False,
-            enable_critic_lstm=True,
         ),
         tensorboard_log=log_dir,
         verbose=1,
@@ -159,6 +162,8 @@ def _seed_eval_thresholds(eval_cb, best_dir: str) -> None:
     with open(score_path) as f:
         score = json.load(f)
     eval_cb.best_mean_reward = score["best_mean_reward"]
+    if hasattr(eval_cb, "best_max_reward") and "best_max_reward" in score:
+        eval_cb.best_max_reward = score["best_max_reward"]
     print(f"[Resume] Seeded eval thresholds from {score_path}: "
           f"best_mean={score['best_mean_reward']:.2f}")
 
@@ -172,26 +177,27 @@ def main():
     resource.setrlimit(resource.RLIMIT_NOFILE, (min(hard, 65536), hard))
 
     parser = argparse.ArgumentParser(
-        description="Train Bubble Trouble with RecurrentPPO/LSTM (cycling curriculum)"
+        description="Train Bubble Trouble Infinity Mode with MaskablePPO (survival)"
     )
     parser.add_argument("--timesteps", type=int, default=None,
                         help=f"Total training timesteps (default: {T['total_timesteps']:,})")
     parser.add_argument("--n-envs", type=int, default=None,
                         help=f"Parallel envs (default: {T['n_envs']})")
     parser.add_argument("--resume", type=str, default=None,
-                        help="Path to checkpoint .zip to resume from")
+                        help="Path to MaskablePPO checkpoint .zip to resume from")
+    parser.add_argument("--warmup", type=str, default=None,
+                        help="Path to any model .zip to warm-start from "
+                             "(transfers weights, resets optimizer/timesteps)")
     parser.add_argument("--vecnorm", type=str, default=None,
                         help="VecNormalize stats .pkl path when resuming")
-    parser.add_argument("--warmup", type=str, default=None,
-                        help="Path to BC-pretrained model .zip for warm start (loads features extractor)")
     parser.add_argument("--lr", type=float, default=None,
                         help="Override learning rate for this run (constant float, e.g. 3e-5)")
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--device", type=str, default="cpu",
-                        choices=["auto", "cpu", "cuda", "mps"],
-                        help="Device (default: cpu)")
-    parser.add_argument("--log-dir", type=str, default="./logs")
-    parser.add_argument("--checkpoint-dir", type=str, default="./checkpoints/recurrent")
+                        choices=["auto", "cpu", "cuda", "mps"])
+    parser.add_argument("--log-dir", type=str, default="./logs/infinity")
+    parser.add_argument("--checkpoint-dir", type=str,
+                        default="./checkpoints/infinity")
     args = parser.parse_args()
 
     os.makedirs(args.log_dir, exist_ok=True)
@@ -201,90 +207,71 @@ def main():
     if device == "auto":
         device = "cuda" if th.cuda.is_available() else "cpu"
 
-    total_timesteps = args.timesteps or T["total_timesteps"]
-    n_envs = args.n_envs or T["n_envs"]
-
     if args.resume and args.warmup:
         parser.error("--resume and --warmup are mutually exclusive")
 
-    # Select curriculum based on warmup mode
-    curriculum = WARMUP_CURRICULUM if args.warmup else CURRICULUM
-
-    lr_start = T["learning_rate_start"]
-    ent_start = T["ent_coef_start"]
-    if args.warmup:
-        lr_start = T["learning_rate_start"] / 10  # 10x lower for warm-started policy
-        ent_start = 0.005  # lower entropy — agent already has a reasonable policy
+    total_timesteps = args.timesteps or T["total_timesteps"]
+    n_envs = args.n_envs or T["n_envs"]
 
     print(f"\n{'='*60}")
-    print(f"RecurrentPPO (LSTM) — {'Warmup' if args.warmup else 'Cycling'} Curriculum  "
+    print(f"MaskablePPO — Infinity Mode (survival)  "
           f"({total_timesteps:,} steps, {n_envs} envs)")
-    print(f"  net={T['net_arch_pi']}  lstm={T['lstm_hidden_size']}×{T['n_lstm_layers']}")
-    print(f"  gamma={T['gamma']}  target_kl={T['target_kl']}")
+    print(f"  net={T['net_arch_pi']}  gamma={T['gamma']}  target_kl={T['target_kl']}")
     print(f"  n_steps={T['n_steps']}  batch={T['batch_size']}  epochs={T['n_epochs']}")
-    print(f"  LR: {lr_start:.1e} → {T['learning_rate_end']:.1e}")
-    print(f"  entropy: {ent_start} → {T['ent_coef_end']}")
+    print(f"  LR: {T['learning_rate_start']:.1e} → {T['learning_rate_end']:.1e}")
+    print(f"  entropy: {T['ent_coef_start']} → {T['ent_coef_end']}")
     print(f"  device={device}")
-    print(f"\n  {'Phase':<6} {'Step':>12} {'Levels':>8} {'Powerups':>9}")
-    print(f"  {'-'*6} {'-'*12} {'-'*8} {'-'*9}")
-    for i, (start_ts, min_l, max_l, pups) in enumerate(curriculum):
-        print(f"  {i:<6} {start_ts:>12,} {f'{min_l}-{max_l}':>8} {'ON' if pups else 'OFF':>9}")
     print(f"{'='*60}\n")
 
-    # --- Build env from first curriculum phase ---
-    _, min_lvl, max_lvl, powerups = curriculum[0]
-    env = build_env(n_envs, min_lvl, max_lvl, powerups, args.seed)
+    env = build_env(n_envs, args.seed)
     eval_env = build_eval_env()
+
+    lr = args.lr if args.lr is not None else linear_schedule(T["learning_rate_start"], T["learning_rate_end"])
 
     if args.resume:
         print(f"Resuming from {args.resume}")
+        if args.lr is not None:
+            print(f"  LR override: {args.lr:.2e} (constant)")
         if args.vecnorm and os.path.exists(args.vecnorm):
             env = VecNormalize.load(args.vecnorm, env.venv)
             env.norm_obs = False
             env.clip_reward = 150.0
         else:
-            print("[WARNING] Resuming without VecNormalize stats — reward normalization will reset")
-        lr = args.lr if args.lr is not None else linear_schedule(T["learning_rate_start"], T["learning_rate_end"])
-        if args.lr is not None:
-            print(f"  LR override: {args.lr:.2e} (constant)")
-        model = RecurrentPPO.load(args.resume, env=env, device=device, learning_rate=lr)
-        # Restore curriculum to the correct phase based on saved timestep
-        resume_phase = 0
-        for i, (start_ts, *_) in enumerate(curriculum):
-            if model.num_timesteps >= start_ts:
-                resume_phase = i
-        _, min_lvl, max_lvl, powerups = curriculum[resume_phase]
-        inner_env = env
-        while hasattr(inner_env, "venv"):
-            inner_env = inner_env.venv
-        inner_env.env_method("set_curriculum",
-                             start_level=min_lvl, max_level=max_lvl,
-                             enable_powerups=powerups)
-        print(f"[Resume] Phase {resume_phase}: levels {min_lvl}–{max_lvl}, "
-              f"powerups={'ON' if powerups else 'OFF'} @ step {model.num_timesteps:,}")
+            print("[WARNING] Resuming without VecNormalize stats — "
+                  "reward normalization will reset")
+        model = MaskablePPO.load(args.resume, env=env, device=device, learning_rate=lr)
     elif args.warmup:
+        # Both regular and infinity modes share the same obs space (968-dim),
+        # so weights transfer directly with no shape mismatches.
         model = build_model(env, device, args.seed, args.log_dir)
-        from sb3_contrib import MaskablePPO
-        warmup = MaskablePPO.load(args.warmup, device=device)
-        model.policy.features_extractor.load_state_dict(
-            warmup.policy.features_extractor.state_dict())
-        del warmup
-        # Override LR schedule and entropy for warm start
-        model.learning_rate = linear_schedule(lr_start, T["learning_rate_end"])
-        model.ent_coef = ent_start
-        print(f"[Warmup] Loaded BC features extractor from {args.warmup}")
-        print(f"[Warmup] LR={lr_start:.1e}, ent_coef={ent_start}")
+        source = MaskablePPO.load(args.warmup, device=device)
+        model.policy.load_state_dict(source.policy.state_dict())
+        del source
+        # Reset value head — source's value function was calibrated for regular
+        # mode rewards which may differ in scale from infinity mode.
+        _reset_value_head(model.policy)
+        # Gentle LR for warm start (10x lower), unless --lr explicitly overrides
+        warmup_lr_start = T["learning_rate_start"] / 10
+        warmup_schedule = (lr if args.lr is not None
+                           else linear_schedule(warmup_lr_start, T["learning_rate_end"]))
+        model.learning_rate = warmup_schedule
+        model.lr_schedule = warmup_schedule
+        model.ent_coef = T["ent_coef_start"] * 0.5  # lower entropy for warm start
+        lr_end = T["learning_rate_end"]
+        lr_desc = "constant" if args.lr else f"{warmup_lr_start:.1e}→{lr_end:.1e}"
+        print(f"[Warmup] Loaded weights from {args.warmup} (value head reset, LR={lr_desc})")
     else:
         model = build_model(env, device, args.seed, args.log_dir)
 
     # --- Callbacks ---
-    ent_cb = EntropyScheduleCallback(ent_start, T["ent_coef_end"], total_timesteps)
+    ent_cb = EntropyScheduleCallback(
+        T["ent_coef_start"], T["ent_coef_end"], total_timesteps)
 
     eval_cb = EvalCallback(
         eval_env,
         best_model_save_path=os.path.join(args.checkpoint_dir, "best"),
-        log_path=os.path.join(args.log_dir, "eval_recurrent"),
-        eval_freq=max(100_000 // n_envs, 1000),
+        log_path=os.path.join(args.log_dir, "eval_infinity"),
+        eval_freq=T["n_steps"],
         n_eval_episodes=N_EVAL_ENVS,
         deterministic=True,
         callback_on_new_best=BestVecNormalizeCallback(
@@ -298,13 +285,12 @@ def main():
     callbacks = CallbackList([
         eval_cb,
         VecNormalizeCheckpointCallback(
-            save_freq=max(25_000_000 // n_envs, 1000),
+            save_freq=max(50_000_000 // n_envs, 1000),
             save_path=os.path.join(args.checkpoint_dir, "periodic"),
-            name_prefix="recurrent_ppo",
+            name_prefix="infinity",
             verbose=1,
         ),
         MetricsCallback(),
-        CurriculumCallback(curriculum, eval_callback=eval_cb, verbose=1),
         ent_cb,
     ])
 
@@ -317,7 +303,8 @@ def main():
         log_interval=100,
     )
 
-    model_path, vecnorm_path = save(model, env, args.checkpoint_dir, "final_model")
+    model_path, vecnorm_path = save(model, env, args.checkpoint_dir,
+                                    "final_model")
     print(f"\nTraining complete — saved to {model_path}.zip")
     print(f"VecNormalize stats → {vecnorm_path}")
 
