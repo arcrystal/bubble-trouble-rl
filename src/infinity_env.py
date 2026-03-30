@@ -2,7 +2,7 @@
 
 Reward: full base engine reward function (time_penalty, hit/pop, ceiling pop, game_over, etc.)
 — same reward structure as regular mode for model interchangeability.
-Observation: same 968-element format as BubbleTroubleEnv (unified obs space).
+Observation: same flat format as BubbleTroubleEnv (unified obs space).
 """
 
 import gymnasium as gym
@@ -93,7 +93,7 @@ class InfinityModeEnv(gym.Env):
     # ------------------------------------------------------------------
 
     def _get_obs(self):
-        """Build OBS_SIZE (968) observation vector, identical layout to BubbleTroubleEnv."""
+        """Build OBS_SIZE observation vector, identical layout to BubbleTroubleEnv."""
         obs = self._obs_buf
         obs[:] = 0.0
         e = self.engine
@@ -102,11 +102,14 @@ class InfinityModeEnv(gym.Env):
         height = e.height
         eff_h = e.effective_height
         agent_cx = e.agent_x + e.agent_w / 2.0
-        NB = MAX_OBS_BALLS  # 64
+        agent_top = eff_h - e.agent_h
+        agent_left = e.agent_x
+        agent_right = e.agent_x + e.agent_w
+        NB = MAX_OBS_BALLS  # 32
 
-        # --- Ball features (64 x 14, feature-major) ---
+        # --- Ball features (32 x 16, feature-major) ---
         if n > 0:
-            # If more balls than slots, select the 64 closest to agent
+            # If more balls than slots, select the 32 closest to agent
             if n > NB:
                 all_cx = e.ball_x[:n] + e.ball_radius[:n]
                 dists = np.abs(all_cx - agent_cx)
@@ -118,6 +121,7 @@ class InfinityModeEnv(gym.Env):
 
             ball_cx = e.ball_x[idx] + e.ball_radius[idx]
             ball_cy = e.ball_y[idx] + e.ball_radius[idx]
+            ball_r = e.ball_radius[idx]
 
             base = 0
             obs[base:base + k] = np.clip(ball_cx / width * 2 - 1, -1.0, 1.0)            # 0: x
@@ -135,36 +139,51 @@ class InfinityModeEnv(gym.Env):
             base = NB * 6
             obs[base:base + k] = 1.0                                                    # 6: is_active
 
+            # Edge dist x: signed closest horizontal distance from agent outline to ball outline
             base = NB * 7
-            rel_x = (ball_cx - agent_cx) / (width / 2)
-            obs[base:base + k] = np.clip(rel_x, -1.0, 1.0)                              # 7: relative_x
+            ball_left = ball_cx - ball_r
+            ball_right = ball_cx + ball_r
+            gap_right = ball_left - agent_right
+            gap_left = agent_left - ball_right
+            edge_dx = np.where(gap_right > 0, gap_right, np.where(gap_left > 0, -gap_left, 0.0))
+            obs[base:base + k] = np.clip(edge_dx / (width / 2), -1.0, 1.0)              # 7: edge_dist_x
 
+            # Edge dist y: signed closest vertical distance from agent outline to ball outline
             base = NB * 8
+            ball_top = ball_cy - ball_r
+            ball_bottom = ball_cy + ball_r
+            gap_above = agent_top - ball_bottom
+            gap_below = ball_top - eff_h
+            edge_dy = np.where(gap_above > 0, -gap_above, np.where(gap_below > 0, gap_below, 0.0))
+            obs[base:base + k] = np.clip(edge_dy / eff_h, -1.0, 1.0)                    # 8: edge_dist_y
+
+            base = NB * 9
             rising = e.ball_yspeed[idx] <= 0
             apex_rising = ball_cy - e.ball_yspeed[idx] ** 2 / (2 * e.ball_yacc[idx])
             actual_bounce_ys = e.ball_max_yspeed[idx] * np.sqrt(e.ball_bounciness[idx])
             apex_falling = eff_h - actual_bounce_ys ** 2 / (2 * e.ball_yacc[idx])
             peak_cy = np.where(rising, apex_rising, apex_falling)
-            obs[base:base + k] = np.clip(peak_cy / eff_h * 2 - 1, -1.0, 1.0)            # 8: peak_height
-
-            base = NB * 9
-            t_reach_s = (eff_h - ball_cy) / height
-            intercept_cx = ball_cx + e.ball_xspeed[idx] * t_reach_s
-            obs[base:base + k] = np.clip(intercept_cx / width * 2 - 1, -1.0, 1.0)       # 9: intercept_x
+            obs[base:base + k] = np.clip(peak_cy / eff_h * 2 - 1, -1.0, 1.0)            # 9: peak_height
 
             base = NB * 10
-            obs[base:base + k] = np.clip(e.ball_bounciness[idx] / 3.0 * 2 - 1, -1.0, 1.0)  # 10: bounciness
+            t_reach_s = (eff_h - ball_cy) / height
+            intercept_cx = ball_cx + e.ball_xspeed[idx] * t_reach_s
+            obs[base:base + k] = np.clip(intercept_cx / width * 2 - 1, -1.0, 1.0)       # 10: intercept_x
 
             base = NB * 11
-            obs[base:base + k] = np.clip(e.ball_chain_depth[idx] / 5.0 * 2 - 1, -1.0, 1.0)  # 11: chain_depth
+            obs[base:base + k] = np.clip(e.ball_bounciness[idx] / 3.0 * 2 - 1, -1.0, 1.0)  # 11: bounciness
 
             base = NB * 12
-            obs[base:base + k] = np.where(
-                e.ball_flags[idx] == BALL_FLAG_STATIC, 1.0, -1.0)                        # 12: is_static
+            obs[base:base + k] = np.clip(e.ball_chain_depth[idx] / 5.0 * 2 - 1, -1.0, 1.0)  # 12: chain_depth
 
             base = NB * 13
+            obs[base:base + k] = np.where(
+                e.ball_flags[idx] == BALL_FLAG_STATIC, 1.0, -1.0)                        # 13: is_static
+
+            base = NB * 14
             height_factor = 1.0 + REWARDS["height_bonus_factor"] * np.maximum(0.0, 1.0 - ball_cy / eff_h)
-            obs[base:base + k] = np.clip(height_factor / 1.5 * 2 - 1, -1.0, 1.0)        # 13: height_bonus
+            obs[base:base + k] = np.clip(height_factor / 1.5 * 2 - 1, -1.0, 1.0)        # 14: height_bonus
+
 
         # --- Agent features (6) ---
         agent_base = NB * OBS_PER_BALL
@@ -203,15 +222,8 @@ class InfinityModeEnv(gym.Env):
                     max_reach = min(max_reach, reachable)
         obs[agent_base + 5] = max_reach / eff_h * 2 - 1
 
-        # --- Global features (13) — same layout as regular mode ---
+        # --- Global features (10) — same layout as regular mode ---
         global_base = agent_base + OBS_AGENT
-        obs[global_base] = n / e.max_balls * 2 - 1                                       # ball count ratio
-        # Map difficulty (schedule progress) → "time remaining" proxy
-        difficulty = e._difficulty()
-        obs[global_base + 1] = (1.0 - difficulty) * 2 - 1                               # time remaining proxy
-        # Map schedule progress → "level" proxy (loops reset to 0)
-        schedule_progress = e._schedule_idx / len(SPAWN_SCHEDULE)
-        obs[global_base + 2] = schedule_progress * 2 - 1                                # level proxy
 
         # Chain ceiling targeting (best opportunity)
         best_chain_quality = 0.0
@@ -241,15 +253,15 @@ class InfinityModeEnv(gym.Env):
                     best_chain_quality = weighted_q
                     t_r = (eff_h - ball_cy_i) / height
                     best_chain_intercept = float(e.ball_x[bi] + e.ball_radius[bi]) + float(e.ball_xspeed[bi]) * t_r
-        obs[global_base + 3] = np.clip(best_chain_intercept / width * 2 - 1, -1.0, 1.0)
-        obs[global_base + 4] = np.clip(best_chain_quality / 2.0 * 2 - 1, -1.0, 1.0)
+        obs[global_base] = np.clip(best_chain_intercept / width * 2 - 1, -1.0, 1.0)
+        obs[global_base + 1] = np.clip(best_chain_quality / 2.0 * 2 - 1, -1.0, 1.0)
 
         # n_rising_ratio
         if n > 0:
             n_rising = int(np.sum(e.ball_yspeed[:n] < 0))
-            obs[global_base + 5] = n_rising / n * 2.0 - 1.0
+            obs[global_base + 2] = n_rising / n * 2.0 - 1.0
         else:
-            obs[global_base + 5] = -1.0
+            obs[global_base + 2] = -1.0
 
         # closest_approach_time
         if n > 0:
@@ -260,19 +272,19 @@ class InfinityModeEnv(gym.Env):
                 ap_idx = np.where(approaching)[0]
                 times = np.abs(rel_x_all[ap_idx]) / (np.abs(e.ball_xspeed[ap_idx]) + 1e-6)
                 min_t = float(np.min(times))
-                obs[global_base + 6] = np.clip(min_t / 3.0, 0.0, 1.0) * 2.0 - 1.0
+                obs[global_base + 3] = np.clip(min_t / 3.0, 0.0, 1.0) * 2.0 - 1.0
             else:
-                obs[global_base + 6] = 1.0
+                obs[global_base + 3] = 1.0
         else:
-            obs[global_base + 6] = 1.0
+            obs[global_base + 3] = 1.0
 
         # Ball level histogram (6 values, levels 1-6)
         if n > 0:
             counts = np.bincount(e.ball_level[:n].astype(int), minlength=MAX_BALL_LEVEL + 1)
             for lvl in range(1, MAX_BALL_LEVEL + 1):
-                obs[global_base + 7 + (lvl - 1)] = counts[lvl] / e.max_balls * 2 - 1
+                obs[global_base + 4 + (lvl - 1)] = counts[lvl] / MAX_OBS_BALLS * 2 - 1
         else:
-            obs[global_base + 7:global_base + 13] = -1.0
+            obs[global_base + 4:global_base + 10] = -1.0
 
         # --- Power-up features (5) ---
         pu_base = global_base + OBS_GLOBAL

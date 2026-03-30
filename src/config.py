@@ -227,14 +227,14 @@ DEFAULT_MAX_STEPS = int(DEFAULT_LEVEL_TIME_SECONDS * DEFAULT_FPS)
 
 # Observation space — DeepSets extractor processes balls permutation-invariantly.
 # Ball features are in natural engine order (unsorted), NOT sorted by distance.
-MAX_OBS_BALLS = 64  # Matches MAX_BALLS so agent sees all splits (lvl-6 → 63 balls)
-OBS_PER_BALL = 14   # x, y, xspeed, yspeed, radius, level, is_active, relative_x, peak_height, intercept_x, bounciness, chain_depth, is_static, height_bonus_factor
+MAX_OBS_BALLS = 32  # lvl-6 splits into at most 2^5=32 lvl-1 balls; 32 is sufficient
+OBS_PER_BALL = 15   # x, y, xspeed, yspeed, radius, level, is_active, edge_dist_x, edge_dist_y, peak_height, intercept_x, bounciness, chain_depth, is_static, height_bonus_factor
 OBS_AGENT = 6       # x, laser_active, laser_length, laser_x, can_fire, laser_max_reach_here
-OBS_GLOBAL = 13     # ball_count, time_remaining, level, best_chain_x, best_chain_quality, n_rising_ratio, closest_approach_time, ball_level_histogram[1..6]
+OBS_GLOBAL = 10     # best_chain_x, best_chain_quality, n_rising_ratio, closest_approach_time, ball_level_histogram[1..6]
 OBS_POWERUP = 5     # has_laser_grid, laser_stuck, powerup_visible, powerup_dist, powerup_type
 OBS_PER_OBSTACLE = 6  # cx, cy, w, h, type, is_passable
 OBS_OBSTACLES = MAX_OBSTACLES * OBS_PER_OBSTACLE  # 48
-OBS_SIZE = MAX_OBS_BALLS * OBS_PER_BALL + OBS_AGENT + OBS_GLOBAL + OBS_POWERUP + OBS_OBSTACLES  # 968
+OBS_SIZE = MAX_OBS_BALLS * OBS_PER_BALL + OBS_AGENT + OBS_GLOBAL + OBS_POWERUP + OBS_OBSTACLES
 
 # Level definitions — each level is a list of ball dicts.
 # Required keys: "lvl" (1-6), "x" (0-1 ratio of width), "y" (0-1 ratio of height)
@@ -346,9 +346,9 @@ TRAINING = {
     # MaskablePPO with DeepSets feature extractor.
     # Extractor handles ball processing (permutation-invariant); MLP heads are smaller.
     "n_envs": 80,
-    "total_timesteps": 500_000_000,
-    "learning_rate_start": 1e-3,
-    "learning_rate_end": 1e-6,
+    "total_timesteps": 1_000_000_000,
+    "learning_rate_start": 5e-3,
+    "learning_rate_end": 1e-7,
     "n_steps": 8192,           # 80 envs × 8192 = 655K buffer — fits full late-level episodes in one GAE pass
     "batch_size": 4096,        # More gradient updates per rollout with smaller network
     "n_epochs": 8,             # Smaller network tolerates more passes; target_kl still guards
@@ -369,32 +369,32 @@ TRAINING = {
 }
 
 CURRICULUM = [
-    # Phase 1: Foundation (0-40M) — internalize basic mechanics
-    (0,             1, 5,  False),    # 40M — Shooting, dodging, ball physics, door wall
+    # Phase 1: Foundation (0-80M) — internalize basic mechanics
+    (0,               1, 5,  False),    # 80M — Shooting, dodging, ball physics, door wall
 
-    # Phase 2: Complexity (40-100M) — multi-ball chaos, obstacles, time pressure
-    (40_000_000,    3, 8,  False),    # 60M — Opening walls, static balls, lowering ceiling
+    # Phase 2: Complexity (80-200M) — multi-ball chaos, obstacles, time pressure
+    (80_000_000,      3, 8,  False),    # 120M — Opening walls, static balls, lowering ceiling
 
-    # Phase 3: Hard level introduction (100-200M) — 100M steps at high LR
-    (100_000_000,   5, 10, True),     # 30M — First L9-10 exposure with L5-8 scaffold
-    (130_000_000,   7, 12, True),     # 30M — First L11-12 exposure
-    (160_000_000,   9, 12, True),     # 40M — Focused hard-level training
+    # Phase 3: Hard level introduction (200-400M)
+    (200_000_000,     5, 10, True),     # 60M — First L9-10 exposure with L5-8 scaffold
+    (260_000_000,     7, 12, True),     # 60M — First L11-12 exposure
+    (320_000_000,     9, 12, True),     # 80M — Focused hard-level training
 
-    # Phase 4: Full game integration (200-270M)
-    (200_000_000,   1, 12, True),     # 70M — Full sequential 1-12
+    # Phase 4: Full game integration (400-540M)
+    (400_000_000,     1, 12, True),     # 140M — Full sequential 1-12
 
-    # Phase 5: Hard mastery cycling (270-420M) — alternating hard refreshers + full game
-    (270_000_000,   9, 12, True),     # 30M — Hard refresher (L9-12)
-    (300_000_000,   1, 12, True),     # 20M — Full game
-    (320_000_000,   10, 12, True),    # 30M — Hard refresher (L10-12)
-    (350_000_000,   1, 12, True),     # 20M — Full game
-    (370_000_000,   11, 12, True),    # 30M — Hard refresher (L11-12)
-    (400_000_000,   1, 12, True),     # 20M — Full game
+    # Phase 5: Hard mastery cycling (540-840M) — alternating hard refreshers + full game
+    (540_000_000,     9, 12, True),     # 60M — Hard refresher (L9-12)
+    (600_000_000,     1, 12, True),     # 40M — Full game
+    (640_000_000,    10, 12, True),     # 60M — Hard refresher (L10-12)
+    (700_000_000,     1, 12, True),     # 40M — Full game
+    (740_000_000,    11, 12, True),     # 60M — Hard refresher (L11-12)
+    (800_000_000,     1, 12, True),     # 40M — Full game
 
-    # Phase 6: Final polish (420-500M)
-    (420_000_000,   12, 12, True),    # 25M — L12 mastery
-    (445_000_000,   1, 12, True),     # 30M — Full game consolidation
-    (475_000_000,   10, 12, True),    # 25M — Final hard push
+    # Phase 6: Final polish (840-1000M)
+    (840_000_000,    12, 12, True),     # 50M — L12 mastery
+    (890_000_000,     1, 12, True),     # 60M — Full game consolidation
+    (950_000_000,    10, 12, True),     # 50M — Final hard push
 ]
 
 # Entropy reset value for hard-level curriculum phases (min_level >= 9)
