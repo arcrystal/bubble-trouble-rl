@@ -68,8 +68,8 @@ class CurriculumCallback(BaseCallback):
 
         _, min_l, max_l, _ = self.curriculum[self.current_phase]
         self.logger.record("train/curriculum_phase", f"{self.current_phase}: {min_l}-{max_l}")
-        if self.eval_callback and hasattr(self.eval_callback, "best_max_reward"):
-            self.logger.record("eval/best_max_reward", self.eval_callback.best_max_reward)
+        if self.eval_callback and hasattr(self.eval_callback, "best_mean_reward"):
+            self.logger.record("eval/best_mean_reward", self.eval_callback.best_mean_reward)
         return True
 
 
@@ -162,13 +162,12 @@ class BestVecNormalizeCallback(BaseCallback):
         vecnorm = self.training_env
         while not isinstance(vecnorm, VecNormalize):
             vecnorm = vecnorm.venv
-        vecnorm_path = os.path.join(self.save_path, "best_model_vecnorm.pkl")
+        stem = getattr(self.parent, "_last_best_stem", "best_model")
+        vecnorm_path = os.path.join(self.save_path, f"{stem}_vecnorm.pkl")
         vecnorm.save(vecnorm_path)
-        # Persist best thresholds so a resumed run doesn't clobber best_model
+        # Persist best threshold so a resumed run doesn't clobber best_model
         # on its very first evaluation (parent.best_mean_reward starts at -inf).
-        score: dict = {"best_mean_reward": float(self.parent.best_mean_reward)}
-        if hasattr(self.parent, "best_max_reward"):
-            score["best_max_reward"] = float(self.parent.best_max_reward)
+        score = {"best_mean_reward": float(self.parent.best_mean_reward)}
         with open(os.path.join(self.save_path, "best_score.json"), "w") as f:
             json.dump(score, f)
         if self.verbose:
@@ -202,20 +201,12 @@ class VecNormalizeCheckpointCallback(BaseCallback):
         return True
 
 
-class MaxRewardEvalCallback(EvalCallback):
-    """EvalCallback that saves best model by max episode reward, not mean.
-
-    SB3's default EvalCallback saves the model with the highest mean_reward
-    across eval episodes. This selects for conservative policies that avoid
-    risk. MaxRewardEvalCallback saves the model that achieves the highest
-    single episode reward, which correlates with levels cleared — the actual
-    objective.
-    """
+class BestMeanEvalCallback(EvalCallback):
+    """EvalCallback that saves a new best_model_{mean_reward} whenever mean reward improves."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.best_max_reward = -np.inf
-        self.best_mean_reward = -np.inf  # keep for logging compatibility
+        self.best_mean_reward = -np.inf
 
     def _on_step(self) -> bool:
         continue_training = True
@@ -263,17 +254,14 @@ class MaxRewardEvalCallback(EvalCallback):
                 )
 
             mean_reward, std_reward = np.mean(episode_rewards), np.std(episode_rewards)
-            max_reward = float(np.max(episode_rewards))
             mean_ep_length = np.mean(episode_lengths)
             self.last_mean_reward = float(mean_reward)
 
             if self.verbose >= 1:
                 print(f"Eval num_timesteps={self.num_timesteps}, "
-                      f"max_reward={max_reward:.2f}, "
                       f"mean_reward={mean_reward:.2f} +/- {std_reward:.2f}")
 
             self.logger.record("eval/mean_reward", float(mean_reward))
-            self.logger.record("eval/max_reward", max_reward)
             self.logger.record("eval/mean_ep_length", mean_ep_length)
 
             if len(self._is_success_buffer) > 0:
@@ -283,14 +271,14 @@ class MaxRewardEvalCallback(EvalCallback):
             self.logger.record("time/total_timesteps", self.num_timesteps, exclude="tensorboard")
             self.logger.dump(self.num_timesteps)
 
-            # Save best by MAX episode reward (not mean)
-            if max_reward > self.best_max_reward:
+            if mean_reward > self.best_mean_reward:
                 if self.verbose >= 1:
-                    print(f"New best max reward: {max_reward:.2f} (prev {self.best_max_reward:.2f})")
-                if self.best_model_save_path is not None:
-                    self.model.save(os.path.join(self.best_model_save_path, "best_model"))
-                self.best_max_reward = max_reward
+                    print(f"New best mean reward: {mean_reward:.2f} (prev {self.best_mean_reward:.2f})")
                 self.best_mean_reward = float(mean_reward)
+                if self.best_model_save_path is not None:
+                    stem = f"best_model_{mean_reward:.2f}"
+                    self._last_best_stem = stem
+                    self.model.save(os.path.join(self.best_model_save_path, stem))
                 if self.callback_on_new_best is not None:
                     continue_training = self.callback_on_new_best.on_step()
 
