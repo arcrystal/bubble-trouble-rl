@@ -49,11 +49,14 @@ def evaluate(args):
             env = Monitor(env)
             return env
     else:
+        start_level = getattr(args, "start_level", 1) or 1
+
         def make_eval_env():
             env = BubbleTroubleEnv(
                 render_mode=render_mode,
                 enable_powerups=True,
                 sequential_levels=True,
+                start_level=start_level,
                 max_level=NUM_LEVELS,
                 render_speed=speed,
             )
@@ -197,6 +200,8 @@ def main():
                              help="Playback speed multiplier (e.g. 2 for 2x, 5 for 5x)")
     eval_parser.add_argument("--infinity", action="store_true",
                              help="Use infinity mode environment")
+    eval_parser.add_argument("--start-level", type=int, default=1,
+                             help="Level to start each episode from (default: 1)")
     # Benchmark subcommand
     bench_parser = subparsers.add_parser("benchmark", help="Benchmark env speed")
     bench_parser.add_argument("--benchmark-steps", type=int, default=100_000)

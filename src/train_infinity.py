@@ -16,6 +16,7 @@ import argparse
 import json
 import os
 import resource
+from datetime import datetime
 
 import torch as th
 
@@ -28,9 +29,8 @@ from stable_baselines3.common.monitor import Monitor
 from infinity_env import InfinityModeEnv
 from config import INFINITY_TRAINING as T
 from feature_extractor import BubbleFeatureExtractor
-from stable_baselines3.common.callbacks import EvalCallback
 from callbacks import (
-    BestVecNormalizeCallback, EntropyScheduleCallback,
+    BestMeanEvalCallback, BestVecNormalizeCallback, EntropyScheduleCallback,
     MetricsCallback, VecNormalizeCheckpointCallback,
 )
 
@@ -155,17 +155,14 @@ def save(model, env, checkpoint_dir: str, name: str) -> tuple[str, str]:
 
 
 def _seed_eval_thresholds(eval_cb, best_dir: str) -> None:
-    """Restore best-score thresholds so a resumed run doesn't clobber best_model."""
+    """Restore best_mean_reward threshold so a resumed run doesn't clobber existing best models."""
     score_path = os.path.join(best_dir, "best_score.json")
     if not os.path.exists(score_path):
         return
     with open(score_path) as f:
         score = json.load(f)
     eval_cb.best_mean_reward = score["best_mean_reward"]
-    if hasattr(eval_cb, "best_max_reward") and "best_max_reward" in score:
-        eval_cb.best_max_reward = score["best_max_reward"]
-    print(f"[Resume] Seeded eval thresholds from {score_path}: "
-          f"best_mean={score['best_mean_reward']:.2f}")
+    print(f"[Resume] Seeded eval threshold from {score_path}: best_mean={score['best_mean_reward']:.2f}")
 
 
 # ---------------------------------------------------------------------------
@@ -196,12 +193,25 @@ def main():
     parser.add_argument("--device", type=str, default="cpu",
                         choices=["auto", "cpu", "cuda", "mps"])
     parser.add_argument("--log-dir", type=str, default="./logs/infinity")
-    parser.add_argument("--checkpoint-dir", type=str,
-                        default="./checkpoints/infinity")
+    parser.add_argument("--checkpoint-dir", type=str, default="./checkpoints/infinity",
+                        help="Base checkpoints dir; a timestamped run subdir is created automatically")
+    parser.add_argument("--run-dir", type=str, default=None,
+                        help="Explicit run directory (overrides auto-generated name, useful for --resume)")
     args = parser.parse_args()
 
+    if args.run_dir:
+        run_dir = args.run_dir
+    else:
+        run_name = datetime.now().strftime("run_%Y%m%d_%H%M%S")
+        run_dir = os.path.join(args.checkpoint_dir, run_name)
+
+    periodic_dir = os.path.join(run_dir, "periodic")
+    best_dir = os.path.join(run_dir, "best")
+    os.makedirs(periodic_dir, exist_ok=True)
+    os.makedirs(best_dir, exist_ok=True)
     os.makedirs(args.log_dir, exist_ok=True)
-    os.makedirs(args.checkpoint_dir, exist_ok=True)
+
+    print(f"Run directory: {run_dir}")
 
     device = args.device
     if device == "auto":
@@ -267,26 +277,26 @@ def main():
     ent_cb = EntropyScheduleCallback(
         T["ent_coef_start"], T["ent_coef_end"], total_timesteps)
 
-    eval_cb = EvalCallback(
+    eval_cb = BestMeanEvalCallback(
         eval_env,
-        best_model_save_path=os.path.join(args.checkpoint_dir, "best"),
+        best_model_save_path=best_dir,
         log_path=os.path.join(args.log_dir, "eval_infinity"),
         eval_freq=T["n_steps"],
         n_eval_episodes=N_EVAL_ENVS,
         deterministic=True,
         callback_on_new_best=BestVecNormalizeCallback(
-            save_path=os.path.join(args.checkpoint_dir, "best"),
+            save_path=best_dir,
             verbose=1,
         ),
         verbose=1,
     )
     if args.resume:
-        _seed_eval_thresholds(eval_cb, os.path.join(args.checkpoint_dir, "best"))
+        _seed_eval_thresholds(eval_cb, best_dir)
     callbacks = CallbackList([
         eval_cb,
         VecNormalizeCheckpointCallback(
             save_freq=max(50_000_000 // n_envs, 1000),
-            save_path=os.path.join(args.checkpoint_dir, "periodic"),
+            save_path=periodic_dir,
             name_prefix="infinity",
             verbose=1,
         ),
@@ -303,8 +313,7 @@ def main():
         log_interval=100,
     )
 
-    model_path, vecnorm_path = save(model, env, args.checkpoint_dir,
-                                    "final_model")
+    model_path, vecnorm_path = save(model, env, run_dir, "final_model")
     print(f"\nTraining complete — saved to {model_path}.zip")
     print(f"VecNormalize stats → {vecnorm_path}")
 
