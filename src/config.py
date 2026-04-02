@@ -347,7 +347,7 @@ TRAINING = {
     # Extractor handles ball processing (permutation-invariant); MLP heads are smaller.
     "n_envs": 80,
     "total_timesteps": 1_000_000_000,
-    "learning_rate_start": 5e-3,
+    "learning_rate_start": 1e-3,
     "learning_rate_end": 1e-7,
     "n_steps": 8192,           # 80 envs × 8192 = 655K buffer — fits full late-level episodes in one GAE pass
     "batch_size": 4096,        # More gradient updates per rollout with smaller network
@@ -519,29 +519,7 @@ RECURRENT_WARMUP_CURRICULUM = [
 # ---------------------------------------------------------------------------
 # Spawn schedule, ball colors, bounciness, etc. are in infinity_config.py.
 
-INFINITY_TRAINING = {
-    "total_timesteps":     500_000_000,
-    "n_envs":              64,
-    "n_steps":             8192,
-    "batch_size":          4096,
-    "n_epochs":            8,
-    "gamma":               0.999,
-    "gae_lambda":          0.98,
-    "learning_rate_start": 3e-4,
-    "learning_rate_end":   6e-7,
-    "ent_coef_start":      0.02,
-    "ent_coef_end":        0.003,
-    "clip_range":          0.2,
-    "vf_coef":             0.5,
-    "max_grad_norm":       0.5,
-    "target_kl":           0.015,
-    "per_ball_hidden":     64,
-    "per_obstacle_hidden": 32,
-    "context_hidden":      64,
-    "context_output":      64,
-    "net_arch_pi":         [512, 256],
-    "net_arch_vf":         [512, 256],
-}
+INFINITY_TRAINING = TRAINING.copy()
 
 
 def compute_ball_properties(level, width, height):
