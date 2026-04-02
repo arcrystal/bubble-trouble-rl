@@ -189,7 +189,7 @@ class VecNormalizeCheckpointCallback(BaseCallback):
         if self.n_calls % self.save_freq == 0:
             os.makedirs(self.save_path, exist_ok=True)
             stem = f"{self.name_prefix}_{self.num_timesteps}_steps"
-            model_path = os.path.join(self.save_path, stem)
+            model_path = os.path.join(self.save_path, stem + ".zip")
             self.model.save(model_path)
             vecnorm = self.training_env
             while not isinstance(vecnorm, VecNormalize):
@@ -278,7 +278,7 @@ class BestMeanEvalCallback(EvalCallback):
                 if self.best_model_save_path is not None:
                     stem = f"best_model_{mean_reward:.2f}"
                     self._last_best_stem = stem
-                    self.model.save(os.path.join(self.best_model_save_path, stem))
+                    self.model.save(os.path.join(self.best_model_save_path, stem + ".zip"))
                 if self.callback_on_new_best is not None:
                     continue_training = self.callback_on_new_best.on_step()
 
