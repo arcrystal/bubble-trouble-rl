@@ -94,8 +94,8 @@ POP_VELOCITY_INHERIT = 0.37     # fraction of parent's vertical speed inherited
 POP_CHAIN_GAIN = 0.22           # impulse multiplier per chain depth: (1+gain)^depth
 POP_MASS_EXPONENT = 0.3         # impulse scales as 1/child_level^exp — lighter = faster
 
-# Maximum balls that can exist simultaneously (2× lvl6 → up to 64 lvl1)
-MAX_BALLS = 64
+# Maximum balls that can exist simultaneously; obs selects closest 32 if overflow
+MAX_BALLS = 32
 
 # Ball flags (optional 5th element in level def tuples)
 BALL_FLAG_NORMAL = 0

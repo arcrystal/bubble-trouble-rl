@@ -95,6 +95,7 @@ def evaluate(args):
         ep_levels = 0
         ep_balls_hit = 0
         ep_balls_popped = 0
+        ep_max_balls = 0
 
         # LSTM state (only used for RecurrentPPO)
         lstm_states = None
@@ -118,6 +119,7 @@ def evaluate(args):
             info_dict = info[0]
             ep_balls_hit += info_dict.get("balls_hit", 0)
             ep_balls_popped += info_dict.get("balls_popped", 0)
+            ep_max_balls = max(ep_max_balls, info_dict.get("n_balls", 0))
             if info_dict.get("level_cleared"):
                 ep_levels += 1
             if info_dict.get("game_cleared"):
@@ -140,13 +142,14 @@ def evaluate(args):
             secs = int(elapsed) % 60
             print(f"Episode {episode + 1}/{args.episodes}: "
                   f"survived={mins}:{secs:02d}, reward={episode_reward:.2f}, "
-                  f"steps={episode_steps}")
+                  f"steps={episode_steps}, max_balls={ep_max_balls}")
         else:
             status = "CLEARED" if info_dict.get("game_cleared") else ("DIED" if not info_dict.get("TimeLimit.truncated", False) else "TIMEOUT")
             print(f"Episode {episode + 1}/{args.episodes}: "
                   f"reward={episode_reward:.2f}, steps={episode_steps}, "
                   f"levels={ep_levels}, balls_hit={ep_balls_hit}, "
-                  f"balls_popped={ep_balls_popped}, status={status}")
+                  f"balls_popped={ep_balls_popped}, max_balls={ep_max_balls}, "
+                  f"status={status}")
 
     n = args.episodes
     print(f"\n--- Summary ({n} episodes) ---")

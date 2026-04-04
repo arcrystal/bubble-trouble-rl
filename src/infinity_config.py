@@ -110,4 +110,4 @@ MAX_BOUNCE_HEIGHT_RATIO = 0.75
 SPAWN_SAFETY_RATIO = 0.15
 
 # Max balls the engine can hold (ball slots)
-MAX_BALLS = 64
+MAX_BALLS = 32
