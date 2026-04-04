@@ -103,6 +103,18 @@ def linear_schedule(start: float, end: float):
     return schedule
 
 
+def log_linear_schedule(start: float, end: float):
+    """Exponential (log-linear) decay: log(LR) is linear in time.
+    Drops LR quickly early on, then fine-tunes slowly for most of training.
+    """
+    import math
+    log_start = math.log(start)
+    log_end = math.log(end)
+    def schedule(progress_remaining: float) -> float:
+        return math.exp(log_end + (log_start - log_end) * progress_remaining)
+    return schedule
+
+
 
 def _adjusted_batch_size(n_envs: int) -> int:
     """Ensure batch_size divides evenly into n_envs * n_steps."""
@@ -154,7 +166,7 @@ def build_model(env, device: str, seed: int | None,
     return MaskablePPO(
         policy="MlpPolicy",
         env=env,
-        learning_rate=linear_schedule(T["learning_rate_start"], T["learning_rate_end"]),
+        learning_rate=log_linear_schedule(T["learning_rate_start"], T["learning_rate_end"]),
         n_steps=T["n_steps"],
         batch_size=_adjusted_batch_size(n_envs),
         n_epochs=T["n_epochs"],
@@ -295,7 +307,7 @@ def main():
           f"({total_timesteps:,} steps, {n_envs} envs)")
     print(f"  net={T['net_arch_pi']}  gamma={T['gamma']}  target_kl={target_kl}")
     print(f"  n_steps={T['n_steps']}  batch={T['batch_size']}  epochs={T['n_epochs']}")
-    print(f"  LR: {lr_start:.1e} → {T['learning_rate_end']:.1e}")
+    print(f"  LR: {lr_start:.1e} → {T['learning_rate_end']:.1e} (log-linear)")
     print(f"  entropy: {ent_start} → {T['ent_coef_end']}")
     print(f"  device={device}")
     print(f"\n  {'Phase':<6} {'Step':>12} {'Levels':>8} {'Powerups':>9}")
@@ -309,7 +321,7 @@ def main():
     env = build_env(n_envs, min_lvl, max_lvl, powerups, args.seed)
     eval_env = build_eval_env()
 
-    lr = args.lr if args.lr is not None else linear_schedule(lr_start, T["learning_rate_end"])
+    lr = args.lr if args.lr is not None else log_linear_schedule(lr_start, T["learning_rate_end"])
 
     if args.resume:
         print(f"Resuming from {args.resume}")
@@ -343,7 +355,7 @@ def main():
         del warmup
         # Override LR schedule for warm start (must set lr_schedule too —
         # SB3 caches the schedule during _setup_model and uses lr_schedule, not learning_rate)
-        warmup_schedule = lr if args.lr is not None else linear_schedule(lr_start, T["learning_rate_end"])
+        warmup_schedule = lr if args.lr is not None else log_linear_schedule(lr_start, T["learning_rate_end"])
         model.learning_rate = warmup_schedule
         model.lr_schedule = warmup_schedule
         model.ent_coef = ent_start

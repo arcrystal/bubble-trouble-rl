@@ -411,57 +411,6 @@ SIL_BC_WEIGHT = 0.05             # auxiliary BC loss weight
 SIL_LR = 1e-5                    # separate optimizer LR
 SIL_ACTIVATE_AT = 500            # min buffer entries before training
 
-# RecurrentPPO (LSTM) training hyperparameters — no action masking available,
-# so the LSTM must learn can_fire from observation context.
-# Longer n_steps critical: LSTM needs long unbroken sequences for hidden state.
-RECURRENT_TRAINING = {
-    "n_envs": 64,
-    "total_timesteps": 120_000_000,
-    "learning_rate_start": 3e-4,
-    "learning_rate_end": 5e-6,
-    "n_steps": 2048,           # LSTM sequence length — shorter than PPO since recurrent buffer is heavier
-    "batch_size": 2048,        # Must equal n_steps for RecurrentPPO (full sequences per minibatch)
-    "n_epochs": 4,
-    "gamma": 0.999,
-    "gae_lambda": 0.95,
-    "clip_range": 0.2,
-    "ent_coef_start": 0.02,
-    "ent_coef_end": 0.003,
-    "vf_coef": 0.5,
-    "max_grad_norm": 0.5,
-    "target_kl": 0.015,
-    "net_arch_pi": [256, 128],    # Smaller MLP before LSTM — LSTM adds its own capacity
-    "net_arch_vf": [256, 128],
-    "lstm_hidden_size": 128,      # LSTM hidden state size
-    "n_lstm_layers": 1,           # Single LSTM layer (more layers rarely help in RL)
-    "per_ball_hidden": 64,             # DeepSets per-ball MLP hidden dim
-    "per_obstacle_hidden": 32,         # DeepSets per-obstacle MLP hidden dim
-    "context_hidden": 64,              # Context MLP hidden dim
-    "context_output": 32,              # Context MLP output dim
-}
-
-# Recurrent curriculum: compressed early phases (LSTM needs less data for basics). 120M total.
-RECURRENT_CURRICULUM = [
-    # --- Progressive expansion (28M steps) ---
-    (0,             1, 3,  False),   # 1M  — Learn to shoot and dodge
-    (1_000_000,    1, 5,  False),   # 5M  — Door wall obstacle (L5)
-    (6_000_000,    3, 8,  False),   # 6M  — Opening walls, static balls
-    (12_000_000,    5, 10, False),   # 8M  — Level-6 ball, ceiling pop chains
-    (20_000_000,    7, 12, False),   # 8M  — All hard levels, forced exposure
-    # --- Full game + hard refresher cycling (92M steps) ---
-    (28_000_000,   1, 12, True),    # 8M  — Full sequential game (build end-to-end play)
-    (36_000_000,   5, 12, True),    # 8.5M — Hard refresher (maintain L5-12 skills)
-    (44_500_000,   1, 12, True),    # 7.5M — Full game polish
-    (52_000_000,   9, 12, True),    # 8M  — Hard refresher (L9-12 focus)
-    (60_000_000,   1, 12, True),    # 8M  — Full game polish
-    (68_000_000,   10, 12, True),   # 8M  — Hard refresher (L10-12 focus)
-    (76_000_000,   1, 12, True),    # 8M  — Full game polish
-    (84_000_000,   11, 12, True),   # 8M  — Hard refresher (L11-12 focus)
-    (92_000_000,   1, 12, True),    # 8M  — Full game polish
-    (100_000_000,   12, 12, True),  # 8M  — Hard refresher (L12 only)
-    (108_000_000,   1, 12, True),   # 12M — Final full game polish
-]
-
 # Warmup curriculum for BC-pretrained agents (--warmup flag).
 # Compressed early phases — agent already knows basic levels from demos.
 # Gets to full-game exposure ~50M steps sooner than standard curriculum.
@@ -490,27 +439,6 @@ WARMUP_CURRICULUM = [
     (240_000_000,   1, 12, True),     # 15M — Full game polish
     (255_000_000,   12, 12, True),    # 20M — Hard refresher (L12 only)
     (275_000_000,   1, 12, True),     # remaining — Final full game polish
-]
-
-# Warmup curriculum for RecurrentPPO with BC warm start.
-RECURRENT_WARMUP_CURRICULUM = [
-    # --- Compressed expansion (15M steps) ---
-    (0,             1, 5,  False),    # 1M  — Quick validation
-    (1_000_000,     3, 8,  False),    # 4M  — Mid-game
-    (5_000_000,     5, 10, False),    # 5M  — Hard levels
-    (10_000_000,    7, 12, False),    # 5M  — Late-game
-    # --- Full game + hard refresher cycling ---
-    (15_000_000,    1, 12, True),     # 8M  — Full game with power-ups
-    (23_000_000,    5, 12, True),     # 8M  — Hard refresher
-    (31_000_000,    1, 12, True),     # 8M  — Full game polish
-    (39_000_000,    9, 12, True),     # 8M  — Hard refresher (L9-12)
-    (47_000_000,    1, 12, True),     # 8M  — Full game polish
-    (55_000_000,    10, 12, True),    # 8M  — Hard refresher (L10-12)
-    (63_000_000,    1, 12, True),     # 8M  — Full game polish
-    (71_000_000,    11, 12, True),    # 8M  — Hard refresher (L11-12)
-    (79_000_000,    1, 12, True),     # 8M  — Full game polish
-    (87_000_000,    12, 12, True),    # 8M  — Hard refresher (L12 only)
-    (95_000_000,    1, 12, True),     # remaining — Final full game polish
 ]
 
 

@@ -606,8 +606,6 @@ class BCAuxiliaryCallback(BaseCallback):
     - Fix F: Filters powerup-active demo frames when curriculum disables
       powerups, preventing observation distribution mismatch.
 
-    Only for MaskablePPO (feedforward policy). RecurrentPPO has an LSTM
-    that requires hidden states not available in demo data.
     """
 
     def __init__(self, demo_paths, curriculum=None, bc_weight_start=1.0,
